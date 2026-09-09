@@ -221,12 +221,19 @@ function Admin({ posts }: { posts: Post[] }) {
   }), [draft]);
 
   async function connect() {
-    if (!config.owner || !config.repo || !config.branch || !token) {
-      setState("error"); setMessage("请补全仓库信息和访问令牌。"); return;
+    const owner = config.owner.trim();
+    const repo = config.repo.trim();
+    const branch = config.branch.trim();
+    const accessToken = token.trim();
+    if (!accessToken) {
+      setState("error"); setMessage("请输入 GitHub 访问令牌。输入框中的灰色字符只是示例，并不是已填写的令牌。"); return;
+    }
+    if (!owner || !repo || !branch) {
+      setState("error"); setMessage("请补全 GitHub 用户名、仓库名和分支。"); return;
     }
     setState("connecting"); setMessage("");
     try {
-      const response = await fetch(`https://api.github.com/repos/${config.owner}/${config.repo}/contents/data/posts.json?ref=${encodeURIComponent(config.branch)}`, { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" } });
+      const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/data/posts.json?ref=${encodeURIComponent(branch)}`, { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${accessToken}`, "X-GitHub-Api-Version": "2022-11-28" } });
       if (!response.ok) throw new Error(response.status === 401 ? "令牌无效或已过期。" : "连接失败，请检查仓库、分支与 Contents 权限。");
       localStorage.setItem("nekopress-repo", JSON.stringify(config));
       setConnected(true); setState("idle");
@@ -276,7 +283,7 @@ function Admin({ posts }: { posts: Post[] }) {
           <Field label="GitHub 用户名"><Input value={config.owner} onChange={(e) => setConfig({ ...config, owner: e.target.value })} placeholder="your-name" /></Field>
           <Field label="仓库名"><Input value={config.repo} onChange={(e) => setConfig({ ...config, repo: e.target.value })} placeholder="my-blog" /></Field>
           <Field label="分支"><Input value={config.branch} onChange={(e) => setConfig({ ...config, branch: e.target.value })} placeholder="main" /></Field>
-          <Field label="Fine-grained token"><Input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="github_pat_••••••••" autoComplete="off" /></Field>
+          <Field label="Fine-grained token"><Input type="password" value={token} onChange={(e) => { setToken(e.target.value); if (state === "error") { setState("idle"); setMessage(""); } }} placeholder="粘贴 github_pat_ 开头的令牌" autoComplete="off" required aria-invalid={state === "error" && !token.trim()} /><small className="token-hint">灰色文字仅为提示，令牌需要手动粘贴</small></Field>
         </div>
         {message && <output className={`status-message ${state}`}>{message}</output>}
         <Button className="connect-button" onClick={() => void connect()} disabled={state === "connecting"}>{state === "connecting" ? <LoaderCircle className="spin" /> : <GitBranch />} {state === "connecting" ? "正在验证…" : "连接并开始写作"}</Button>
