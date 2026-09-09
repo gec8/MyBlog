@@ -1,5 +1,17 @@
 [
   {
+    "id": "诗歌-1788994675671",
+    "slug": "诗歌",
+    "title": "诗歌",
+    "excerpt": "诗歌分享",
+    "category": "随笔",
+    "author": "Neko",
+    "coverImage": "./images/诗歌-1788994669368.webp",
+    "date": "2026-09-09",
+    "readMinutes": 1,
+    "content": "## 从这里开始\n\n写下你的正文。\n\n![architecture-3095716_1920.jpg](./images/article-image-1788994579040.webp)\n\n@[audio](./audio/article-audio-1788994597422.mp3)\n"
+  },
+  {
     "id": "welcome-to-nekopress",
     "slug": "welcome-to-nekopress",
     "title": "把灵感写成可以反复抵达的地方",
