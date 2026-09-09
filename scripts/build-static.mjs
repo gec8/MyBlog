@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
@@ -38,6 +39,32 @@ if (basePath) {
     }
   };
   rewrite(outputDir);
+}
+
+// Vinext can keep the same CSS asset name even when its contents change.
+// Add a content hash so GitHub Pages' immutable cache always serves fresh styles.
+const cssDir = resolve(outputDir, "_next/static/css");
+if (existsSync(cssDir)) {
+  for (const fileName of readdirSync(cssDir).filter((file) => file.endsWith(".css"))) {
+    const oldPath = resolve(cssDir, fileName);
+    const hash = createHash("sha256").update(readFileSync(oldPath)).digest("hex").slice(0, 10);
+    const nextName = fileName.replace(/\.css$/, `.${hash}.css`);
+    if (nextName === fileName) continue;
+    renameSync(oldPath, resolve(cssDir, nextName));
+
+    const updateReferences = (directory) => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const assetPath = resolve(directory, entry.name);
+        if (entry.isDirectory()) updateReferences(assetPath);
+        else if (/\.(?:html|rsc|js|json|css)$/.test(entry.name)) {
+          const source = readFileSync(assetPath, "utf8");
+          const next = source.replaceAll(fileName, nextName);
+          if (next !== source) writeFileSync(assetPath, next);
+        }
+      }
+    };
+    updateReferences(outputDir);
+  }
 }
 
 if (result.status && process.platform === "win32") {
