@@ -2,7 +2,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, BarChart3, Bold, CheckCircle2, Clock3, Code2, Copy, Download, Eye, EyeOff, FilePlus2, FileText, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, LoaderCircle, LockKeyhole, LogOut, Maximize2, Menu, Minus, Minimize2, Pencil, PenLine, Quote, Redo2, RefreshCw, RotateCcw, Save, Search, Send, Settings, Sparkles, Trash2, Undo2, Upload, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, BarChart3, Bold, CheckCircle2, Clock3, Code2, Copy, Download, Eye, EyeOff, FilePlus2, FileText, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, LoaderCircle, LockKeyhole, LogOut, Maximize2, Menu, Minus, Minimize2, Music2, Pencil, PenLine, Quote, Redo2, RefreshCw, RotateCcw, Save, Search, Send, Settings, Sparkles, Trash2, Undo2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -195,6 +195,7 @@ function Markdown({ content }: { content: string }) {
     else if (line.startsWith("## ")) blocks.push(<h2 id={headingId(line.slice(3))} key={index}>{inlineMarkdown(line.slice(3))}</h2>);
     else if (line.startsWith("> ")) blocks.push(<blockquote key={index}>{inlineMarkdown(line.slice(2))}</blockquote>);
     else if (line.trim() === "---") blocks.push(<hr key={index} />);
+    else if (/^@\[audio\]\([^)]+\)$/.test(line)) { const audio = line.match(/^@\[audio\]\(([^)]+)\)$/)!; blocks.push(<figure className="audio-player" key={index}><Music2 /><div><b>文章音频</b><small>点击播放或暂停</small></div><audio controls preload="metadata" src={audio[1]}>您的浏览器不支持音频播放。</audio></figure>); }
     else if (/^!\[[^\]]*\]\([^)]+\)$/.test(line)) { const image = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)!; blocks.push(<figure key={index}><img src={image[2]} alt={image[1]} /><figcaption>{image[1]}</figcaption></figure>); }
     else blocks.push(<p key={index}>{inlineMarkdown(line)}</p>);
   });
@@ -249,6 +250,9 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   const [deleteTarget, setDeleteTarget] = useState<Post | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
+  const inlineImageRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLInputElement>(null);
+  const selectionRef = useRef({ start: 0, end: 0 });
   const settingsImportRef = useRef<HTMLInputElement>(null);
   const undoStack = useRef<string[]>([]);
   const redoStack = useRef<string[]>([]);
@@ -379,9 +383,11 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
 
   function insertMarkdown(prefix: string, suffix = prefix, placeholder = "文字") {
     const area = editorRef.current; if (!area) return;
-    const start = area.selectionStart; const end = area.selectionEnd; const selected = draft.content.slice(start, end) || placeholder;
-    updateDraft({ content: `${draft.content.slice(0, start)}${prefix}${selected}${suffix}${draft.content.slice(end)}` });
-    requestAnimationFrame(() => { area.focus(); area.setSelectionRange(start + prefix.length, start + prefix.length + selected.length); });
+    let { start, end } = selectionRef.current; const selected = draft.content.slice(start, end) || placeholder;
+    const block = /^(## |> |- |```|\n---)/.test(prefix); const lead = block && start > 0 && draft.content[start - 1] !== "\n" ? "\n" : "";
+    const insertion = `${lead}${prefix}${selected}${suffix}`; updateDraft({ content: `${draft.content.slice(0, start)}${insertion}${draft.content.slice(end)}` });
+    const caret = start + insertion.length; selectionRef.current = { start: caret, end: caret };
+    requestAnimationFrame(() => { area.focus(); area.setSelectionRange(caret, caret); });
   }
 
   async function uploadImage(event: ChangeEvent<HTMLInputElement>) {
@@ -406,6 +412,14 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     setState("uploading"); setMessage("正在上传正文图片…");
     try { const prepared = await prepareImage(file); const name = `${slugify(draft.title || "article")}-inline-${Date.now()}.${prepared.extension}`; const body = JSON.stringify({ message: `upload: ${name}`, content: prepared.content, branch: config.branch.trim() }); const response = await fetch(contentsApi(`public/images/${name}`), { method: "PUT", headers: { ...headers(), "Content-Type": "application/json" }, body }); if (!response.ok) throw new Error("正文图片上传失败。"); updateDraft({ content: `${draft.content.trimEnd()}\n\n![${file.name}](./images/${name})\n` }); setState("success"); setMessage("图片已插入正文末尾。"); }
     catch (error) { setState("error"); setMessage(error instanceof Error ? error.message : "图片上传失败。"); }
+  }
+
+  async function uploadBodyMedia(file: File, kind: "image" | "audio") {
+    const limit = kind === "audio" ? 15 * 1024 * 1024 : 5 * 1024 * 1024;
+    if (file.size > limit) { setState("error"); setMessage(kind === "audio" ? "音频文件不能超过 15MB。" : "图片不能超过 5MB。"); return; }
+    setState("uploading"); setMessage(`正在上传${kind === "audio" ? "音频" : "图片"}…`);
+    try { const prepared = kind === "image" ? await prepareImage(file) : { content: await fileToBase64(file), extension: file.name.split(".").pop()?.toLowerCase() || "mp3" }; const name = `${slugify(draft.title || "article")}-${kind}-${Date.now()}.${prepared.extension}`; const folder = kind === "audio" ? "audio" : "images"; const body = JSON.stringify({ message: `upload: ${name}`, content: prepared.content, branch: config.branch.trim() }); const response = await fetch(contentsApi(`public/${folder}/${name}`), { method: "PUT", headers: { ...headers(), "Content-Type": "application/json" }, body }); if (!response.ok) throw new Error("媒体文件上传失败，请检查仓库写入权限。"); const markdown = kind === "audio" ? `\n\n@[audio](./audio/${name})\n` : `\n\n![${file.name}](./images/${name})\n`; updateDraft({ content: `${draft.content.trimEnd()}${markdown}` }); setState("success"); setMessage(`${kind === "audio" ? "音频" : "图片"}已上传并插入正文。`); }
+    catch (error) { setState("error"); setMessage(error instanceof Error ? error.message : "媒体上传失败。"); }
   }
 
   async function publish() {
@@ -489,7 +503,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
               <div className="editor-meta-strip"><Field label="分类"><Input value={draft.category} onChange={(e) => updateDraft({ category: e.target.value })} /></Field><Field label="作者"><Input value={draft.author} onChange={(e) => updateDraft({ author: e.target.value })} /></Field><Field label="文章链接"><Input value={draft.slug} onChange={(e) => updateDraft({ slug: slugifyInput(e.target.value) })} placeholder={slugify(draft.title) || "article-url"} /></Field></div>
               <Field label="封面图片"><div className="cover-field"><Input value={draft.coverImage} onChange={(e) => updateDraft({ coverImage: e.target.value })} placeholder="图片 URL，或直接上传" /><Button type="button" variant="outline" onClick={() => imageRef.current?.click()} disabled={state === "uploading"}><ImagePlus />上传</Button><input ref={imageRef} className="file-input" type="file" accept="image/*" onChange={(event) => void uploadImage(event)} /></div>{draft.coverImage && <div className="cover-preview"><img src={draft.coverImage} alt="封面预览" /><button type="button" onClick={() => updateDraft({ coverImage: "" })}><X />移除封面</button></div>}<small className="token-hint">上传时会自动压缩大图；支持 JPG、PNG、WebP、GIF 和 SVG，最大 5MB</small></Field>
               <Field label="摘要"><Textarea value={draft.excerpt} onChange={(e) => updateDraft({ excerpt: e.target.value })} placeholder="用一两句话说明这篇文章讲什么" /></Field>
-              <Field label="正文"><div className="markdown-toolbar" aria-label="Markdown 工具栏"><button type="button" onClick={undoContent} title="撤销"><Undo2 />撤销</button><button type="button" onClick={redoContent} title="重做"><Redo2 />重做</button><i/><button type="button" onClick={() => insertMarkdown("## ", "", "小标题")}><Heading2 />标题</button><button type="button" onClick={() => insertMarkdown("**", "**")}><Bold />粗体</button><button type="button" onClick={() => insertMarkdown("> ", "", "引用内容")}><Quote />引用</button><button type="button" onClick={() => insertMarkdown("- ", "", "列表项目")}><List />列表</button><button type="button" onClick={() => insertMarkdown("[", "](https://)", "链接文字")}><Link2 />链接</button><button type="button" onClick={() => insertMarkdown("```\n", "\n```", "代码")}><Code2 />代码</button><button type="button" onClick={() => insertMarkdown("\n---\n", "", "")}><Minus />分隔线</button></div><Textarea ref={editorRef} className="content-editor" value={draft.content} onChange={(e) => updateDraft({ content: e.target.value })} onDragOver={(event) => event.preventDefault()} onDrop={(event) => void uploadInlineImage(event)} placeholder="开始写作，也可以把图片拖到这里…" /></Field>
+              <Field label="正文"><div className="markdown-toolbar" aria-label="Markdown 工具栏"><button type="button" onClick={undoContent} title="撤销"><Undo2 />撤销</button><button type="button" onClick={redoContent} title="重做"><Redo2 />重做</button><i/><button type="button" onClick={() => insertMarkdown("## ", "", "小标题")}><Heading2 />标题</button><button type="button" onClick={() => insertMarkdown("**", "**")}><Bold />粗体</button><button type="button" onClick={() => insertMarkdown("> ", "", "引用内容")}><Quote />引用</button><button type="button" onClick={() => insertMarkdown("- ", "", "列表项目")}><List />列表</button><button type="button" onClick={() => insertMarkdown("[", "](https://)", "链接文字")}><Link2 />链接</button><button type="button" onClick={() => insertMarkdown("```\n", "\n```", "代码")}><Code2 />代码</button><button type="button" onClick={() => insertMarkdown("\n---\n", "", "")}><Minus />分隔线</button><i/><button type="button" className="media-tool" onClick={() => inlineImageRef.current?.click()}><ImagePlus />图片</button><button type="button" className="media-tool" onClick={() => audioRef.current?.click()}><Music2 />音频</button><input ref={inlineImageRef} className="file-input" type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadBodyMedia(file, "image"); event.target.value = ""; }} /><input ref={audioRef} className="file-input" type="file" accept="audio/mpeg,audio/mp4,audio/ogg,audio/wav,audio/webm" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadBodyMedia(file, "audio"); event.target.value = ""; }} /></div><Textarea ref={editorRef} className="content-editor" value={draft.content} onChange={(e) => updateDraft({ content: e.target.value })} onSelect={(event) => { selectionRef.current = { start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }; }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => void uploadInlineImage(event)} placeholder="开始写作，也可以把图片拖到这里…" /></Field>
             </section>
             <div className="publish-row"><p><Eye /> {draft.content.length} 字 · 约 {preview.readMinutes} 分钟阅读</p><div><Button type="button" variant="outline" onClick={saveDraft}><Save />保存草稿</Button><Button type="submit" size="lg" disabled={state === "publishing" || state === "deploying"}>{state === "publishing" ? <LoaderCircle className="spin" /> : <Send />} {state === "publishing" ? "正在提交…" : editingId ? "更新文章" : "发布文章"}</Button></div></div>
           </form>
