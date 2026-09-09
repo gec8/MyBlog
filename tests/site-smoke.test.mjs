@@ -20,8 +20,9 @@ test("后台编辑和发布入口存在", () => {
 
 test("音频语法与播放器状态完整", () => {
   assert.match(source, /@\\\[audio/);
-  assert.match(source, /is-loading/);
-  assert.match(source, /is-error/);
+  assert.match(source, /function AudioPlayer\(/);
+  assert.match(source, /mediaState.*loading.*ready.*error/);
+  assert.match(source, /<audio ref=/);
 });
 
 test("移动端限制横向溢出", () => {
