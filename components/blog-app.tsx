@@ -272,6 +272,7 @@ function NotFound() {
 
 type RepoConfig = { owner: string; repo: string; branch: string };
 type Draft = { title: string; slug: string; excerpt: string; category: string; author: string; coverImage: string; content: string };
+type SavedDraft = { id: string; savedAt: string; draft: Draft };
 const emptyDraft: Draft = { title: "", slug: "", excerpt: "", category: "随笔", author: "Neko", coverImage: "", content: "## 从这里开始\n\n写下你的正文。" };
 
 function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: SiteSettings }) {
@@ -281,13 +282,17 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   const [draft, setDraft] = useState(emptyDraft);
   const [remotePosts, setRemotePosts] = useState(posts);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [panel, setPanel] = useState<"dashboard" | "posts" | "editor" | "settings">("dashboard");
+  const [panel, setPanel] = useState<"dashboard" | "posts" | "editor" | "media" | "drafts" | "settings">("dashboard");
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("全部");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest" | "title">("newest");
   const [siteSettings, setSiteSettings] = useState(initialSettings);
   const [connected, setConnected] = useState(false);
   const [mobilePreview, setMobilePreview] = useState(false);
+  const [previewSize, setPreviewSize] = useState<"desktop" | "tablet" | "mobile">("desktop");
+  const [savedDrafts, setSavedDrafts] = useState<SavedDraft[]>([]);
+  const [activeDraftId, setActiveDraftId] = useState(() => `draft-${Date.now()}`);
+  const [mediaCheck, setMediaCheck] = useState<"idle" | "checking" | "ok" | "error">("idle");
   const [state, setState] = useState<"idle" | "connecting" | "uploading" | "publishing" | "deploying" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
   const [draftStatus, setDraftStatus] = useState("草稿会自动保存在本机");
@@ -312,16 +317,20 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
       if (saved) deferUpdate(() => setConfig(JSON.parse(saved)));
       const savedDraft = localStorage.getItem("nekopress-draft");
       if (savedDraft) deferUpdate(() => setDraft({ ...emptyDraft, ...JSON.parse(savedDraft) }));
+      const allDrafts = localStorage.getItem("nekopress-drafts");
+      if (allDrafts) deferUpdate(() => setSavedDrafts(JSON.parse(allDrafts)));
     } catch { /* ignore malformed local preference */ }
   }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       localStorage.setItem("nekopress-draft", JSON.stringify(draft));
+      const entry: SavedDraft = { id: activeDraftId, savedAt: new Date().toISOString(), draft };
+      setSavedDrafts((current) => { const next = [entry, ...current.filter((item) => item.id !== activeDraftId)].slice(0, 20); localStorage.setItem("nekopress-drafts", JSON.stringify(next)); return next; });
       setDraftStatus(`已自动保存 · ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`);
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [draft]);
+  }, [draft, activeDraftId]);
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (dirty) event.preventDefault(); };
@@ -341,6 +350,18 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   const totalWords = useMemo(() => remotePosts.reduce((total, post) => total + post.content.replace(/\s/g, "").length, 0), [remotePosts]);
   const settingsDirty = useMemo(() => JSON.stringify(siteSettings) !== JSON.stringify(initialSettings), [siteSettings, initialSettings]);
   const visiblePosts = useMemo(() => remotePosts.filter((post) => (categoryFilter === "全部" || post.category === categoryFilter) && `${post.title} ${post.excerpt}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => sortOrder === "title" ? a.title.localeCompare(b.title, "zh-CN") : sortOrder === "oldest" ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)), [remotePosts, categoryFilter, query, sortOrder]);
+  const slugDuplicate = useMemo(() => Boolean(draft.slug && remotePosts.some((post) => post.slug === draft.slug && post.id !== editingId)), [draft.slug, remotePosts, editingId]);
+  const draftMedia = useMemo(() => [draft.coverImage, ...Array.from(draft.content.matchAll(/(?:!\[[^\]]*\]|@\[audio(?::[^\]]+)?\])\(([^)]+)\)/g), (match) => match[1])].filter(Boolean), [draft.coverImage, draft.content]);
+  const mediaLibrary = useMemo(() => { const map = new Map<string, { url: string; type: "image" | "audio"; posts: string[] }>(); remotePosts.forEach((post) => { const urls = [post.coverImage, ...Array.from(post.content.matchAll(/(?:!\[[^\]]*\]|@\[audio(?::[^\]]+)?\])\(([^)]+)\)/g), (match) => match[1])].filter(Boolean) as string[]; urls.forEach((url) => { const type = /\.(?:mp3|m4a|wav|ogg|webm)(?:\?|$)/i.test(url) || url.includes("/audio/") ? "audio" : "image"; const item = map.get(url) || { url, type, posts: [] }; if (!item.posts.includes(post.title)) item.posts.push(post.title); map.set(url, item); }); }); return Array.from(map.values()); }, [remotePosts]);
+
+  useEffect(() => {
+    if (!showPublishCheck) { setMediaCheck("idle"); return; }
+    const localMedia = draftMedia.filter((url) => !/^https?:/i.test(url));
+    if (!localMedia.length) { setMediaCheck("ok"); return; }
+    let active = true; setMediaCheck("checking");
+    Promise.all(localMedia.map((url) => fetch(new URL(url, window.location.href), { method: "HEAD", cache: "no-store" }).then((response) => response.ok).catch(() => false))).then((results) => { if (active) setMediaCheck(results.every(Boolean) ? "ok" : "error"); });
+    return () => { active = false; };
+  }, [showPublishCheck, draftMedia]);
 
   const headers = () => ({ Accept: "application/vnd.github+json", Authorization: `Bearer ${token.trim()}`, "X-GitHub-Api-Version": "2022-11-28" });
   const contentsApi = (path: string) => `https://api.github.com/repos/${config.owner.trim()}/${config.repo.trim()}/contents/${path}`;
@@ -412,6 +433,8 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
 
   function saveDraft() {
     localStorage.setItem("nekopress-draft", JSON.stringify(draft));
+    const entry: SavedDraft = { id: activeDraftId, savedAt: new Date().toISOString(), draft };
+    setSavedDrafts((current) => { const next = [entry, ...current.filter((item) => item.id !== activeDraftId)].slice(0, 20); localStorage.setItem("nekopress-drafts", JSON.stringify(next)); return next; });
     setDraftStatus("草稿已保存到本机"); setDirty(false);
   }
 
@@ -420,9 +443,9 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   function undoContent() { const previous = undoStack.current.pop(); if (previous === undefined) return; redoStack.current.push(draft.content); setDraft((current) => ({ ...current, content: previous })); setDirty(true); }
   function redoContent() { const next = redoStack.current.pop(); if (next === undefined) return; undoStack.current.push(draft.content); setDraft((current) => ({ ...current, content: next })); setDirty(true); }
 
-  function newPost() { setDraft({ ...emptyDraft, author: siteSettings.author || "Neko", category: siteSettings.defaultCategory || "随笔" }); setEditingId(null); setDirty(false); setMessage(""); setPanel("editor"); }
+  function newPost() { setDraft({ ...emptyDraft, author: siteSettings.author || "Neko", category: siteSettings.defaultCategory || "随笔" }); setActiveDraftId(`draft-${Date.now()}`); setEditingId(null); setDirty(false); setMessage(""); setPanel("editor"); }
 
-  function editPost(post: Post) { setDraft({ title: post.title, slug: post.slug, excerpt: post.excerpt, category: post.category, author: post.author, coverImage: post.coverImage ?? "", content: post.content }); setEditingId(post.id); setDirty(false); setMessage(""); setPanel("editor"); }
+  function editPost(post: Post) { setDraft({ title: post.title, slug: post.slug, excerpt: post.excerpt, category: post.category, author: post.author, coverImage: post.coverImage ?? "", content: post.content }); setActiveDraftId(`post-${post.id}`); setEditingId(post.id); setDirty(false); setMessage(""); setPanel("editor"); }
 
   async function refreshPosts() {
     setState("connecting"); setMessage("正在读取仓库中的最新文章…");
@@ -475,6 +498,8 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     if (!config.owner || !config.repo || !token || !draft.title.trim() || !draft.content.trim()) {
       setState("error"); setMessage("请补全仓库信息、令牌、标题与正文。"); return;
     }
+    if (slugDuplicate) { setState("error"); setMessage("文章链接已被使用，请更换后再发布。"); return; }
+    if (mediaCheck !== "ok") { setState("error"); setMessage(mediaCheck === "error" ? "部分本地媒体无法访问，请修复链接后再发布。" : "媒体仍在检查，请稍候再试。"); return; }
     setState("publishing"); setDeploymentStage(0); setMessage("");
     try {
       const previousRun = await latestRun();
@@ -484,6 +509,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
       const nextPosts = editingId ? current.data.map((post) => post.id === editingId ? nextPost : post) : [nextPost, ...current.data];
       await writeRepoFile("data/posts.json", nextPosts, editingId ? `update: ${draft.title}` : `publish: ${draft.title}`, current.sha);
       setRemotePosts(nextPosts); setEditingId(nextPost.id); setDirty(false); localStorage.removeItem("nekopress-draft");
+      setSavedDrafts((currentDrafts) => { const nextDrafts = currentDrafts.filter((item) => item.id !== activeDraftId); localStorage.setItem("nekopress-drafts", JSON.stringify(nextDrafts)); return nextDrafts; });
       await waitForDeployment(previousRun?.id ?? null);
     } catch (error) {
       setState("error"); setMessage(error instanceof Error ? error.message : "发布失败，请稍后重试。");
@@ -527,12 +553,12 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     </main> : <main className={`admin-workspace ${focusMode ? "focus-mode" : ""}`}>
       <aside className="admin-sidebar">
         <div className="workspace-id"><span>{siteSettings.name.slice(0, 1)}</span><div><b>{siteSettings.name}</b><small>{config.owner}/{config.repo}</small></div></div>
-        <nav><button className={panel === "dashboard" ? "active" : ""} onClick={() => setPanel("dashboard")}><BarChart3 />概览</button><button className={panel === "posts" ? "active" : ""} onClick={() => setPanel("posts")}><List />文章管理 <span>{remotePosts.length}</span></button><button className={panel === "editor" ? "active" : ""} onClick={() => setPanel("editor")}><PenLine />写作编辑{dirty && <i className="nav-dot" />}</button><button className={panel === "settings" ? "active" : ""} onClick={() => setPanel("settings")}><Settings />博客设置{settingsDirty && <i className="nav-dot" />}</button></nav>
+        <nav><button className={panel === "dashboard" ? "active" : ""} onClick={() => setPanel("dashboard")}><BarChart3 />概览</button><button className={panel === "posts" ? "active" : ""} onClick={() => setPanel("posts")}><List />文章 <span>{remotePosts.length}</span></button><button className={panel === "editor" ? "active" : ""} onClick={() => setPanel("editor")}><PenLine />写作{dirty && <i className="nav-dot" />}</button><button className={panel === "media" ? "active" : ""} onClick={() => setPanel("media")}><ImagePlus />媒体</button><button className={panel === "drafts" ? "active" : ""} onClick={() => setPanel("drafts")}><Save />草稿 <span>{savedDrafts.length}</span></button><button className={panel === "settings" ? "active" : ""} onClick={() => setPanel("settings")}><Settings />设置{settingsDirty && <i className="nav-dot" />}</button></nav>
         <div className="sidebar-bottom"><div className="connection-card"><span><i/>仓库已连接</span><b>{config.branch}</b><p><LockKeyhole />令牌仅存在当前页面，刷新后自动清除。</p></div><button onClick={() => { setToken(""); setConnected(false); }}><KeyRound />断开并清除令牌</button></div>
       </aside>
 
       <section className="workspace-main">
-        <header className="workspace-heading"><div><p>{panel === "dashboard" ? "OVERVIEW" : panel === "posts" ? "CONTENT" : panel === "settings" ? "SETTINGS" : "EDITOR"}</p><h1>{panel === "dashboard" ? `晚上好，${siteSettings.author}` : panel === "posts" ? "文章管理" : panel === "settings" ? "博客设置" : editingId ? "编辑文章" : "写一篇新文章"}</h1></div><div className="workspace-actions">{panel === "editor" && <Button className="focus-toggle" variant="outline" onClick={() => setFocusMode(!focusMode)}>{focusMode ? <Minimize2 /> : <Maximize2 />}{focusMode ? "退出专注" : "专注模式"}</Button>}{panel !== "settings" && <Button onClick={newPost}><FilePlus2 />新文章</Button>}</div></header>
+        <header className="workspace-heading"><div><p>{panel === "dashboard" ? "OVERVIEW" : panel === "posts" ? "CONTENT" : panel === "media" ? "MEDIA" : panel === "drafts" ? "DRAFTS" : panel === "settings" ? "SETTINGS" : "EDITOR"}</p><h1>{panel === "dashboard" ? `晚上好，${siteSettings.author}` : panel === "posts" ? "文章管理" : panel === "media" ? "媒体资源" : panel === "drafts" ? "本机草稿" : panel === "settings" ? "博客设置" : editingId ? "编辑文章" : "写一篇新文章"}</h1></div><div className="workspace-actions">{panel === "editor" && <Button className="focus-toggle" variant="outline" onClick={() => setFocusMode(!focusMode)}>{focusMode ? <Minimize2 /> : <Maximize2 />}{focusMode ? "退出专注" : "专注模式"}</Button>}{panel !== "settings" && <Button onClick={newPost}><FilePlus2 />新文章</Button>}</div></header>
         {message && <output className={`status-message workspace-status ${state}`}>{state === "success" ? <CheckCircle2 /> : state === "deploying" || state === "publishing" || state === "uploading" ? <LoaderCircle className="spin" /> : null}<span>{message}</span></output>}
         {deploymentStage > 0 && <div className="deployment-progress"><div className={deploymentStage >= 1 ? "done" : ""}><span>{deploymentStage > 1 ? <CheckCircle2 /> : "1"}</span><b>提交内容</b></div><i/><div className={deploymentStage >= 2 ? "done" : ""}><span>{deploymentStage > 2 ? <CheckCircle2 /> : "2"}</span><b>构建网站</b></div><i/><div className={deploymentStage >= 3 ? "done" : ""}><span>{deploymentStage >= 3 ? <CheckCircle2 /> : "3"}</span><b>正式上线</b></div></div>}
 
@@ -543,20 +569,24 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
           <div className="admin-post-list">{visiblePosts.length ? visiblePosts.map((post) => <article key={post.id}><div className={`admin-post-cover ${coverTone(post.category)}`}>{post.coverImage ? <img src={post.coverImage} alt="" /> : post.category.slice(0, 1)}</div><div><small>{post.category} · {post.date} · {post.readMinutes} 分钟</small><h2>{post.title}</h2><p>{post.excerpt}</p></div><div className="post-row-actions"><button onClick={() => go(`post/${post.slug}`)}><Eye />预览</button><button onClick={() => editPost(post)}><Pencil />编辑</button><button className="danger" onClick={() => setDeleteTarget(post)}><Trash2 />删除</button></div></article>) : <div className="list-empty"><FileText /><p>没有符合条件的文章</p><Button onClick={newPost}><FilePlus2 />写一篇新文章</Button></div>}</div>
         </div></>}
 
+        {panel === "media" && <section className="manage-panel media-library"><header><div><h2>已使用的媒体</h2><p>汇总所有文章中的封面、正文图片和音频，可直接复用。</p></div><b>{mediaLibrary.length} 个资源</b></header>{mediaLibrary.length ? <div>{mediaLibrary.map((item) => <article key={item.url}><span className={`media-thumb ${item.type}`}>{item.type === "image" ? <img src={item.url} alt="" loading="lazy" /> : <Music2 />}</span><div><b>{item.url.split("/").pop()}</b><small>{item.type === "image" ? "图片" : "音频"} · 用于 {item.posts.length} 篇文章</small><p>{item.posts.join("、")}</p></div><button onClick={() => { const markdown = item.type === "audio" ? `\n\n@[audio:文章音频](${item.url})\n` : `\n\n![图片说明](${item.url})\n`; updateDraft({ content: `${draft.content.trimEnd()}${markdown}` }); setPanel("editor"); }}><Copy />插入正文</button></article>)}</div> : <div className="list-empty"><ImagePlus /><p>还没有文章媒体</p></div>}</section>}
+
+        {panel === "drafts" && <section className="manage-panel draft-library"><header><div><h2>本机草稿</h2><p>自动保存最近 20 份内容，仅存放在当前设备。</p></div><b>{savedDrafts.length} 份</b></header>{savedDrafts.length ? <div>{savedDrafts.map((item) => <button key={item.id} onClick={() => { setDraft({ ...emptyDraft, ...item.draft }); setActiveDraftId(item.id); setEditingId(item.id.startsWith("post-") ? item.id.slice(5) : null); setDirty(false); setPanel("editor"); }}><span><Save /></span><div><b>{item.draft.title || "未命名草稿"}</b><small>{new Date(item.savedAt).toLocaleString("zh-CN")} · {item.draft.content.replace(/\s/g, "").length} 字</small></div><ArrowRight /></button>)}</div> : <div className="list-empty"><Save /><p>还没有保存的草稿</p><Button onClick={newPost}>开始写作</Button></div>}</section>}
+
         {panel === "editor" && <div className="editor-workspace">
           <div className="mobile-editor-tabs"><button type="button" className={!mobilePreview ? "active" : ""} onClick={() => setMobilePreview(false)}><PenLine />编辑</button><button type="button" className={mobilePreview ? "active" : ""} onClick={() => setMobilePreview(true)}><Eye />预览</button></div>
           <form className={`editor-panel ${mobilePreview ? "mobile-hidden" : ""}`} onSubmit={(event) => { event.preventDefault(); setShowPublishCheck(true); }}>
             <section className="write-section">
               <div className="form-heading"><div><PenLine /><span><b>{editingId ? "编辑现有文章" : "新文章"}</b><small>{draftStatus} · Ctrl/⌘ + S 保存</small></span></div><span className="completion-chip">{[draft.title.trim(), draft.excerpt.trim(), draft.content.trim()].filter(Boolean).length}/3 已完成</span></div>
-              <div className="writer-title"><Input className="title-input" value={draft.title} onChange={(e) => updateDraft({ title: e.target.value })} placeholder="给这篇文章一个好标题" /><p>{draft.title.length} 字 · {editingId ? "正在编辑已发布文章" : "新文章"}</p></div>
-              <div className="editor-meta-strip"><Field label="分类"><Input value={draft.category} onChange={(e) => updateDraft({ category: e.target.value })} /></Field><Field label="作者"><Input value={draft.author} onChange={(e) => updateDraft({ author: e.target.value })} /></Field><Field label="文章链接"><Input value={draft.slug} onChange={(e) => updateDraft({ slug: slugifyInput(e.target.value) })} placeholder={slugify(draft.title) || "article-url"} /></Field></div>
+              <div className="writer-title"><Input className="title-input" value={draft.title} onChange={(e) => { const title = e.target.value; const autoSlug = !draft.slug || draft.slug === slugify(draft.title); updateDraft({ title, ...(autoSlug ? { slug: slugify(title) } : {}) }); }} placeholder="给这篇文章一个好标题" /><p>{draft.title.length} 字 · {editingId ? "正在编辑已发布文章" : "新文章"}</p></div>
+              <div className="editor-meta-strip"><Field label="分类"><Input value={draft.category} onChange={(e) => updateDraft({ category: e.target.value })} /></Field><Field label="作者"><Input value={draft.author} onChange={(e) => updateDraft({ author: e.target.value })} /></Field><Field label="文章链接"><Input className={slugDuplicate ? "input-error" : ""} value={draft.slug} onChange={(e) => updateDraft({ slug: slugifyInput(e.target.value) })} placeholder={slugify(draft.title) || "article-url"} aria-invalid={slugDuplicate} />{slugDuplicate && <small className="field-error">该链接已被其他文章使用</small>}</Field></div>
               <Field label="封面图片"><div className="cover-field"><Input value={draft.coverImage} onChange={(e) => updateDraft({ coverImage: e.target.value })} placeholder="图片 URL，或直接上传" /><Button type="button" variant="outline" onClick={() => imageRef.current?.click()} disabled={state === "uploading"}><ImagePlus />上传</Button><input ref={imageRef} className="file-input" type="file" accept="image/*" onChange={(event) => void uploadImage(event)} /></div>{draft.coverImage && <div className="cover-preview"><img src={draft.coverImage} alt="封面预览" /><button type="button" onClick={() => updateDraft({ coverImage: "" })}><X />移除封面</button></div>}<small className="token-hint">上传时会自动压缩大图；支持 JPG、PNG、WebP、GIF 和 SVG，最大 5MB</small></Field>
               <Field label="摘要"><Textarea className="summary-input" value={draft.excerpt} onChange={(e) => updateDraft({ excerpt: e.target.value })} placeholder="用一两句话说明这篇文章讲什么" /></Field>
               <Field label="正文"><div className="markdown-toolbar" aria-label="Markdown 工具栏"><button type="button" onClick={undoContent} title="撤销"><Undo2 />撤销</button><button type="button" onClick={redoContent} title="重做"><Redo2 />重做</button><i/><button type="button" onClick={() => insertMarkdown("## ", "", "小标题")}><Heading2 />标题</button><button type="button" onClick={() => insertMarkdown("**", "**")}><Bold />粗体</button><button type="button" onClick={() => insertMarkdown("> ", "", "引用内容")}><Quote />引用</button><button type="button" onClick={() => insertMarkdown("- ", "", "列表项目")}><List />列表</button><button type="button" onClick={() => insertMarkdown("[", "](https://)", "链接文字")}><Link2 />链接</button><button type="button" onClick={() => insertMarkdown("```\n", "\n```", "代码")}><Code2 />代码</button><button type="button" onClick={() => insertMarkdown("\n---\n", "", "")}><Minus />分隔线</button><i/><button type="button" className="media-tool" onClick={() => inlineImageRef.current?.click()}><ImagePlus />图片</button><button type="button" className="media-tool" onClick={() => audioRef.current?.click()}><Music2 />音频</button><input ref={inlineImageRef} className="file-input" type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadBodyMedia(file, "image"); event.target.value = ""; }} /><input ref={audioRef} className="file-input" type="file" accept="audio/mpeg,audio/mp4,audio/ogg,audio/wav,audio/webm" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadBodyMedia(file, "audio"); event.target.value = ""; }} /></div><Textarea ref={editorRef} className="content-editor" value={draft.content} onChange={(e) => updateDraft({ content: e.target.value })} onSelect={(event) => { selectionRef.current = { start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }; }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => void uploadInlineImage(event)} placeholder="开始写作，也可以把图片拖到这里…" /></Field>
             </section>
             <div className="publish-row"><p><Eye /> {draft.content.length} 字 · 约 {preview.readMinutes} 分钟阅读</p><div><Button type="button" variant="outline" onClick={saveDraft}><Save />保存草稿</Button><Button type="submit" size="lg" disabled={state === "publishing" || state === "deploying"}>{state === "publishing" ? <LoaderCircle className="spin" /> : <Send />} {state === "publishing" ? "正在提交…" : editingId ? "更新文章" : "发布文章"}</Button></div></div>
           </form>
-          <aside className={`preview-panel article-preview ${mobilePreview ? "mobile-visible" : ""}`}><div className="preview-browser"><i/><i/><i/><span>文章预览</span></div><header><small>{preview.category} · {formatDate(preview.date)}</small><h2>{preview.title}</h2><p>{preview.excerpt}</p><div><b>{preview.author.slice(0,1)}</b><span>{preview.author}<small>{preview.readMinutes} 分钟阅读</small></span></div></header><div className={`mini-cover ${coverTone(preview.category)} ${preview.coverImage ? "has-image" : ""}`}>{preview.coverImage && <img src={preview.coverImage} alt="" />}<span>{preview.category}</span></div><div className="mini-body"><Markdown content={preview.content} /></div></aside>
+          <aside className={`preview-panel article-preview preview-${previewSize} ${mobilePreview ? "mobile-visible" : ""}`}><div className="preview-browser"><i/><i/><i/><div className="preview-size"><button className={previewSize === "desktop" ? "active" : ""} onClick={() => setPreviewSize("desktop")}>电脑</button><button className={previewSize === "tablet" ? "active" : ""} onClick={() => setPreviewSize("tablet")}>平板</button><button className={previewSize === "mobile" ? "active" : ""} onClick={() => setPreviewSize("mobile")}>手机</button></div></div><header><small>{preview.category} · {formatDate(preview.date)}</small><h2>{preview.title}</h2><p>{preview.excerpt}</p><div><b>{preview.author.slice(0,1)}</b><span>{preview.author}<small>{preview.readMinutes} 分钟阅读</small></span></div></header><div className={`mini-cover ${coverTone(preview.category)} ${preview.coverImage ? "has-image" : ""}`}>{preview.coverImage && <img src={preview.coverImage} alt="" />}<span>{preview.category}</span></div><div className="mini-body"><Markdown content={preview.content} /></div></aside>
         </div>}
 
         {panel === "settings" && <form className="settings-groups" onSubmit={(event) => { event.preventDefault(); void saveSettings(); }}>
@@ -567,7 +597,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
         </form>}
       </section>
     </main>}
-    {showPublishCheck && <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowPublishCheck(false)}><section className="publish-check" role="dialog" aria-modal="true" aria-labelledby="publish-check-title" onMouseDown={(event) => event.stopPropagation()}><header><span><CheckCircle2 /></span><div><h2 id="publish-check-title">发布前检查</h2><p>确认文章信息完整后再提交到 GitHub。</p></div><button onClick={() => setShowPublishCheck(false)} aria-label="关闭"><X /></button></header><ul><li className={draft.title.trim() ? "ok" : ""}><span>{draft.title.trim() ? <CheckCircle2 /> : "1"}</span><div><b>文章标题</b><small>{draft.title.trim() || "尚未填写"}</small></div></li><li className={draft.excerpt.trim() ? "ok" : ""}><span>{draft.excerpt.trim() ? <CheckCircle2 /> : "2"}</span><div><b>文章摘要</b><small>{draft.excerpt.trim() ? `${draft.excerpt.length} 字` : "建议填写简短摘要"}</small></div></li><li className={draft.content.trim() ? "ok" : ""}><span>{draft.content.trim() ? <CheckCircle2 /> : "3"}</span><div><b>正文内容</b><small>{draft.content.replace(/\s/g, "").length} 字 · 约 {preview.readMinutes} 分钟</small></div></li><li className={draft.coverImage ? "ok optional" : "optional"}><span>{draft.coverImage ? <CheckCircle2 /> : <ImagePlus />}</span><div><b>文章封面</b><small>{draft.coverImage ? "已设置" : "可选，未设置时使用分类封面"}</small></div></li></ul><footer><Button variant="outline" onClick={() => setShowPublishCheck(false)}>继续编辑</Button><Button disabled={!draft.title.trim() || !draft.content.trim()} onClick={() => { setShowPublishCheck(false); void publish(); }}><Send />确认{editingId ? "更新" : "发布"}</Button></footer></section></div>}
+    {showPublishCheck && <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowPublishCheck(false)}><section className="publish-check" role="dialog" aria-modal="true" aria-labelledby="publish-check-title" onMouseDown={(event) => event.stopPropagation()}><header><span><CheckCircle2 /></span><div><h2 id="publish-check-title">发布前检查</h2><p>确认文章信息完整后再提交到 GitHub。</p></div><button onClick={() => setShowPublishCheck(false)} aria-label="关闭"><X /></button></header><ul><li className={draft.title.trim() ? "ok" : ""}><span>{draft.title.trim() ? <CheckCircle2 /> : "1"}</span><div><b>文章标题</b><small>{draft.title.trim() || "尚未填写"}</small></div></li><li className={!slugDuplicate && draft.slug ? "ok" : "error"}><span>{!slugDuplicate && draft.slug ? <CheckCircle2 /> : "2"}</span><div><b>文章链接</b><small>{slugDuplicate ? "链接与已有文章重复" : draft.slug || "请填写文章链接"}</small></div></li><li className={draft.excerpt.trim().length >= 20 ? "ok" : "optional"}><span>{draft.excerpt.trim().length >= 20 ? <CheckCircle2 /> : "3"}</span><div><b>文章摘要</b><small>{draft.excerpt.trim() ? `${draft.excerpt.length} 字${draft.excerpt.length < 20 ? "，建议至少 20 字" : ""}` : "建议填写简短摘要"}</small></div></li><li className={draft.content.replace(/\s/g, "").length >= 50 ? "ok" : "optional"}><span>{draft.content.trim() ? <CheckCircle2 /> : "4"}</span><div><b>正文内容</b><small>{draft.content.replace(/\s/g, "").length} 字 · 约 ${preview.readMinutes} 分钟${draft.content.replace(/\s/g, "").length < 50 ? "，内容略短" : ""}</small></div></li><li className={`media-status ${mediaCheck === "ok" ? "ok" : mediaCheck === "error" ? "error" : ""}`}><span>{mediaCheck === "checking" ? <LoaderCircle className="spin" /> : mediaCheck === "ok" ? <CheckCircle2 /> : "5"}</span><div><b>媒体链接</b><small>{mediaCheck === "checking" ? "正在检查本地图片和音频…" : mediaCheck === "error" ? "发现无法访问的本地媒体" : draftMedia.length ? `已检查 ${draftMedia.length} 个媒体链接` : "正文未使用媒体"}</small></div></li><li className={draft.coverImage ? "ok optional" : "optional"}><span>{draft.coverImage ? <CheckCircle2 /> : <ImagePlus />}</span><div><b>文章封面</b><small>{draft.coverImage ? "已设置" : "可选，未设置时使用分类封面"}</small></div></li></ul><footer><Button variant="outline" onClick={() => setShowPublishCheck(false)}>继续编辑</Button><Button disabled={!draft.title.trim() || !draft.content.trim() || !draft.slug || slugDuplicate || mediaCheck !== "ok"} onClick={() => { setShowPublishCheck(false); void publish(); }}><Send />确认{editingId ? "更新" : "发布"}</Button></footer></section></div>}
     {deleteTarget && <div className="modal-backdrop" role="presentation" onMouseDown={() => setDeleteTarget(null)}><section className="publish-check delete-check" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" onMouseDown={(event) => event.stopPropagation()}><header><span><Trash2 /></span><div><h2 id="delete-title">删除这篇文章？</h2><p>《{deleteTarget.title}》将从网站移除。</p></div><button onClick={() => setDeleteTarget(null)} aria-label="关闭"><X /></button></header><div className="delete-note"><LockKeyhole />GitHub 会保留历史版本，必要时仍可恢复。</div><footer><Button variant="outline" onClick={() => setDeleteTarget(null)}>取消</Button><Button className="danger-confirm" onClick={() => { const post = deleteTarget; setDeleteTarget(null); void deletePost(post); }}><Trash2 />确认删除</Button></footer></section></div>}
   </div>;
 }
