@@ -29,7 +29,7 @@ function readRoute(): Route {
   if (typeof window === "undefined") return { view: "home" };
   const hash = window.location.hash.replace(/^#\/?/, "");
   if (hash === "admin") return { view: "admin" };
-  if (hash.startsWith("post/")) return { view: "post", slug: decodeURIComponent(hash.slice(5)) };
+  if (hash.startsWith("post/")) { try { return { view: "post", slug: decodeURIComponent(hash.slice(5)) }; } catch { return { view: "home" }; } }
   return { view: "home" };
 }
 
@@ -45,7 +45,8 @@ function coverTone(category: string) {
 }
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", day: "numeric" }).format(new Date(`${value}T00:00:00`));
+  try { return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", day: "numeric" }).format(new Date(`${value}T00:00:00`)); }
+  catch { return value; }
 }
 
 export function BlogApp({ initialPosts, initialSettings }: { initialPosts: Post[]; initialSettings: SiteSettings }) {
@@ -89,7 +90,7 @@ function Home({ posts, settings }: { posts: Post[]; settings: SiteSettings }) {
     <Header name={settings.name} />
     <main id="top" className="site-width page-shell">
       <section className="hero">
-        <img src="./hero-v2.png" alt="夜晚书桌旁的猫与笔记本" />
+        <img src="./hero-v2.png" alt="夜晚书桌旁的猫与笔记本" loading="eager" decoding="async" fetchPriority="high" onError={(event) => { event.currentTarget.hidden = true; }} />
         <div className="hero-shade" />
         <div className="hero-copy">
           <p><Sparkles size={14} /> NEKO EDITORIAL</p>
@@ -115,7 +116,7 @@ function PostCard({ post, featured = false }: { post: Post; featured?: boolean }
   return <article className={`post-card ${featured ? "featured" : ""}`}>
     <button className="card-hit" onClick={() => go(`post/${post.slug}`)} aria-label={`阅读：${post.title}`}>
       <div className={`post-cover ${coverTone(post.category)} ${post.coverImage ? "has-image" : ""}`}>
-        {post.coverImage && <img src={post.coverImage} alt="" />}
+        {post.coverImage && <img src={post.coverImage} alt="" loading={featured ? "eager" : "lazy"} decoding="async" fetchPriority={featured ? "high" : "auto"} onError={(event) => { event.currentTarget.hidden = true; event.currentTarget.parentElement?.classList.add("image-failed"); }} />}
         <span>{post.category}</span><b>{post.date.slice(5).replace("-", " / ")}</b>
       </div>
       <div className="post-content"><p>{featured ? "EDITOR'S PICK" : `${post.category} · ${post.author}`}</p><h3>{post.title}</h3><span>{post.excerpt}</span><footer><span><Clock3 size={14} /> {post.readMinutes} 分钟阅读</span><ArrowUpRight className="card-arrow" size={16} /></footer></div>
@@ -137,7 +138,7 @@ function Article({ post, posts, settings }: { post: Post; posts: Post[]; setting
       const height = document.documentElement.scrollHeight - window.innerHeight;
       setProgress(height > 0 ? Math.min(100, (window.scrollY / height) * 100) : 0);
     };
-    queueMicrotask(update);
+    deferUpdate(update);
     window.addEventListener("scroll", update, { passive: true });
     return () => window.removeEventListener("scroll", update);
   }, []);
@@ -160,7 +161,7 @@ function Article({ post, posts, settings }: { post: Post; posts: Post[]; setting
         <span>{post.excerpt}</span>
         <div><b>{post.author.slice(0, 1).toUpperCase()}</b><p><strong>{post.author}</strong><span><Clock3 size={13} /> {post.readMinutes} 分钟阅读</span></p></div>
       </header>
-      <div className={`article-cover ${coverTone(post.category)} ${post.coverImage ? "has-image" : ""}`}>{post.coverImage && <img src={post.coverImage} alt="" />}<span>{post.category}</span><b>{post.date}</b></div>
+      <div className={`article-cover ${coverTone(post.category)} ${post.coverImage ? "has-image" : ""}`}>{post.coverImage && <img src={post.coverImage} alt="" loading="eager" decoding="async" fetchPriority="high" onError={(event) => { event.currentTarget.hidden = true; event.currentTarget.parentElement?.classList.add("image-failed"); }} />}<span>{post.category}</span><b>{post.date}</b></div>
       <article className="article-body"><Markdown content={post.content} /></article>
       <div className="article-tools"><button onClick={() => void copyLink()}><Copy />{copied ? "已复制" : "复制文章链接"}</button><button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}><ArrowUp />返回顶部</button></div>
       <nav className="article-neighbors" aria-label="相邻文章">
@@ -222,7 +223,7 @@ function Markdown({ content }: { content: string }) {
     else if (line.startsWith("> ")) blocks.push(<blockquote key={index}>{inlineMarkdown(line.slice(2))}</blockquote>);
     else if (line.trim() === "---") blocks.push(<hr key={index} />);
     else if (/^@\[audio(?::[^\]]+)?\]\([^)]+\)$/.test(line)) { const audio = line.match(/^@\[audio(?::([^\]]+))?\]\(([^)]+)\)$/)!; blocks.push(<AudioPlayer key={index} title={audio[1]?.trim() || "文章音频"} src={audio[2]} />); }
-    else if (/^!\[[^\]]*\]\([^)]+\)$/.test(line)) { const image = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)!; blocks.push(<figure key={index}><img src={image[2]} alt={image[1]} /><figcaption>{image[1]}</figcaption></figure>); }
+    else if (/^!\[[^\]]*\]\([^)]+\)$/.test(line)) { const image = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)!; blocks.push(<figure key={index}><img src={image[2]} alt={image[1]} loading="lazy" decoding="async" onError={(event) => { event.currentTarget.hidden = true; event.currentTarget.parentElement?.classList.add("article-image-failed"); }} /><figcaption>{image[1]}</figcaption></figure>); }
     else blocks.push(<p key={index}>{inlineMarkdown(line)}</p>);
   });
   flushList();
@@ -444,7 +445,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     const limit = kind === "audio" ? 15 * 1024 * 1024 : 5 * 1024 * 1024;
     if (file.size > limit) { setState("error"); setMessage(kind === "audio" ? "音频文件不能超过 15MB。" : "图片不能超过 5MB。"); return; }
     setState("uploading"); setMessage(`正在上传${kind === "audio" ? "音频" : "图片"}…`);
-    try { const prepared = kind === "image" ? await prepareImage(file) : { content: await fileToBase64(file), extension: file.name.split(".").pop()?.toLowerCase() || "mp3" }; const name = `${slugify(draft.title || "article")}-${kind}-${Date.now()}.${prepared.extension}`; const folder = kind === "audio" ? "audio" : "images"; const body = JSON.stringify({ message: `upload: ${name}`, content: prepared.content, branch: config.branch.trim() }); const response = await fetch(contentsApi(`public/${folder}/${name}`), { method: "PUT", headers: { ...headers(), "Content-Type": "application/json" }, body }); if (!response.ok) throw new Error("媒体文件上传失败，请检查仓库写入权限。"); const audioTitle = file.name.replace(/\.[^.]+$/, "").replaceAll("]", "").trim() || "文章音频"; const markdown = kind === "audio" ? `\n\n@[audio:${audioTitle}](./audio/${name})\n` : `\n\n![${file.name}](./images/${name})\n`; updateDraft({ content: `${draft.content.trimEnd()}${markdown}` }); setState("success"); setMessage(`${kind === "audio" ? "音频" : "图片"}已上传并插入正文。`); }
+    try { const prepared = kind === "image" ? await prepareImage(file) : { content: await fileToBase64(file), extension: file.name.split(".").pop()?.toLowerCase() || "mp3" }; const name = `${slugify(draft.title || "article")}-${kind}-${Date.now()}.${prepared.extension}`; const folder = kind === "audio" ? "audio" : "images"; const body = JSON.stringify({ message: `upload: ${name}`, content: prepared.content, branch: config.branch.trim() }); const response = await fetch(contentsApi(`public/${folder}/${name}`), { method: "PUT", headers: { ...headers(), "Content-Type": "application/json" }, body }); if (!response.ok) throw new Error("媒体文件上传失败，请检查仓库写入权限。"); const audioTitle = file.name.replace(/\.[^.]+$/, "").replace(/\]/g, "").trim() || "文章音频"; const markdown = kind === "audio" ? `\n\n@[audio:${audioTitle}](./audio/${name})\n` : `\n\n![${file.name}](./images/${name})\n`; updateDraft({ content: `${draft.content.trimEnd()}${markdown}` }); setState("success"); setMessage(`${kind === "audio" ? "音频" : "图片"}已上传并插入正文。`); }
     catch (error) { setState("error"); setMessage(error instanceof Error ? error.message : "媒体上传失败。"); }
   }
 
