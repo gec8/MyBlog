@@ -17,8 +17,6 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
 
-const assetRecovery = `(function(){var key="nekopress-asset-recovery";window.addEventListener("error",function(event){var target=event.target;if(!target||!(target.tagName==="SCRIPT"||target.tagName==="LINK"))return;if(sessionStorage.getItem(key))return;sessionStorage.setItem(key,"1");var url=new URL(location.href);url.searchParams.set("refresh",Date.now().toString());location.replace(url.pathname+url.search+url.hash)},true);window.addEventListener("load",function(){sessionStorage.removeItem(key)})})();`;
-
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="zh-CN"><head><meta httpEquiv="Cache-Control" content="no-cache, no-store, must-revalidate" /><meta httpEquiv="Pragma" content="no-cache" /><script dangerouslySetInnerHTML={{ __html: assetRecovery }} /></head><body className={`${geistSans.variable} ${geistMono.variable}`}>{children}<noscript><main className="load-fallback"><b>NekoPress</b><p>请开启浏览器的 JavaScript 后重新访问。</p></main></noscript></body></html>;
+  return <html lang="zh-CN"><body className={`${geistSans.variable} ${geistMono.variable}`}>{children}<noscript><main className="load-fallback"><b>NekoPress</b><p>请开启浏览器的 JavaScript 后重新访问。</p></main></noscript></body></html>;
 }
