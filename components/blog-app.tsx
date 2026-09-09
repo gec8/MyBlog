@@ -23,6 +23,7 @@ export type Post = {
 export type SiteSettings = { name: string; tagline: string; description: string; author: string; defaultCategory: string; postsPerPage: number; github: string; footer: string; copyright: string };
 
 type Route = { view: "home" } | { view: "admin" } | { view: "post"; slug: string };
+const deferUpdate = (callback: () => void) => typeof queueMicrotask === "function" ? queueMicrotask(callback) : Promise.resolve().then(callback);
 
 function readRoute(): Route {
   if (typeof window === "undefined") return { view: "home" };
@@ -51,7 +52,7 @@ export function BlogApp({ initialPosts, initialSettings }: { initialPosts: Post[
   const [route, setRoute] = useState<Route>({ view: "home" });
   useEffect(() => {
     const sync = () => setRoute(readRoute());
-    queueMicrotask(sync);
+    deferUpdate(sync);
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
@@ -142,6 +143,7 @@ function Article({ post, posts, settings }: { post: Post; posts: Post[]; setting
   }, []);
   useEffect(() => {
     const headings = toc.map((item) => document.getElementById(item.id)).filter(Boolean) as HTMLElement[];
+    if (!("IntersectionObserver" in window)) return;
     const observer = new IntersectionObserver((entries) => entries.forEach((entry) => { if (entry.isIntersecting) setActiveHeading(entry.target.id); }), { rootMargin: "-20% 0px -65%" });
     headings.forEach((heading) => observer.observe(heading)); return () => observer.disconnect();
   }, [toc]);
@@ -284,9 +286,9 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   useEffect(() => {
     try {
       const saved = localStorage.getItem("nekopress-repo");
-      if (saved) queueMicrotask(() => setConfig(JSON.parse(saved)));
+      if (saved) deferUpdate(() => setConfig(JSON.parse(saved)));
       const savedDraft = localStorage.getItem("nekopress-draft");
-      if (savedDraft) queueMicrotask(() => setDraft({ ...emptyDraft, ...JSON.parse(savedDraft) }));
+      if (savedDraft) deferUpdate(() => setDraft({ ...emptyDraft, ...JSON.parse(savedDraft) }));
     } catch { /* ignore malformed local preference */ }
   }, []);
 
