@@ -68,6 +68,13 @@ export function BlogApp({ initialPosts, initialSettings }: { initialPosts: Post[
 
 function Header({ compact = false, name = "NekoPress" }: { compact?: boolean; name?: string }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const previous = document.body.style.overflow;
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setMenuOpen(false); };
+    document.body.style.overflow = "hidden"; window.addEventListener("keydown", close);
+    return () => { document.body.style.overflow = previous; window.removeEventListener("keydown", close); };
+  }, [menuOpen]);
   return <header className="site-header"><div className="site-width header-inner">
     <button className="brand" onClick={() => go()} aria-label="返回首页"><span className="cat-logo">猫</span>{name}</button>
     <nav className={menuOpen ? "nav-open" : ""} aria-label="主导航">
@@ -75,6 +82,7 @@ function Header({ compact = false, name = "NekoPress" }: { compact?: boolean; na
       <button onClick={() => { setMenuOpen(false); go(); setTimeout(() => document.querySelector("#about")?.scrollIntoView(), 40); }}>关于</button>
       <button className="write-link" onClick={() => { setMenuOpen(false); go("admin"); }}><PenLine size={14} /> 写文章</button>
     </nav>
+    {menuOpen && <button className="nav-backdrop" aria-label="关闭菜单" onClick={() => setMenuOpen(false)} />}
     <button className="menu-toggle" onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen} aria-label={menuOpen ? "关闭菜单" : "打开菜单"}>{menuOpen ? <X /> : <Menu />}</button>
   </div></header>;
 }
@@ -128,6 +136,9 @@ function Article({ post, posts, settings }: { post: Post; posts: Post[]; setting
   const [progress, setProgress] = useState(0);
   const [activeHeading, setActiveHeading] = useState("");
   const [copied, setCopied] = useState(false);
+  const [fontSize, setFontSize] = useState<"small" | "normal" | "large">("normal");
+  const [lightbox, setLightbox] = useState<number | null>(null);
+  const bodyImages = useMemo(() => post.content.split("\n").map((line) => line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)).filter(Boolean).map((match) => ({ alt: match![1], src: match![2] })), [post.content]);
   const toc = useMemo(() => post.content.split("\n").filter((line) => line.startsWith("## ")).map((line) => ({ title: line.slice(3), id: headingId(line.slice(3)) })), [post.content]);
   const index = posts.findIndex((item) => item.id === post.id);
   const previous = posts[index + 1];
@@ -148,6 +159,13 @@ function Article({ post, posts, settings }: { post: Post; posts: Post[]; setting
     const observer = new IntersectionObserver((entries) => entries.forEach((entry) => { if (entry.isIntersecting) setActiveHeading(entry.target.id); }), { rootMargin: "-20% 0px -65%" });
     headings.forEach((heading) => observer.observe(heading)); return () => observer.disconnect();
   }, [toc]);
+  useEffect(() => {
+    if (lightbox === null) return;
+    const previous = document.body.style.overflow;
+    const keys = (event: KeyboardEvent) => { if (event.key === "Escape") setLightbox(null); if (event.key === "ArrowLeft") setLightbox((value) => value === null ? null : (value - 1 + bodyImages.length) % bodyImages.length); if (event.key === "ArrowRight") setLightbox((value) => value === null ? null : (value + 1) % bodyImages.length); };
+    document.body.style.overflow = "hidden"; window.addEventListener("keydown", keys);
+    return () => { document.body.style.overflow = previous; window.removeEventListener("keydown", keys); };
+  }, [lightbox, bodyImages.length]);
   async function copyLink() { await navigator.clipboard.writeText(window.location.href); setCopied(true); window.setTimeout(() => setCopied(false), 1800); }
   return <>
     <Header compact name={settings.name} />
@@ -162,11 +180,11 @@ function Article({ post, posts, settings }: { post: Post; posts: Post[]; setting
         <div><b>{post.author.slice(0, 1).toUpperCase()}</b><p><strong>{post.author}</strong><span><Clock3 size={13} /> {post.readMinutes} 分钟阅读</span></p></div>
       </header>
       <div className={`article-cover ${coverTone(post.category)} ${post.coverImage ? "has-image" : ""}`}>{post.coverImage && <img src={post.coverImage} alt="" loading="eager" decoding="async" fetchPriority="high" onError={(event) => { event.currentTarget.hidden = true; event.currentTarget.parentElement?.classList.add("image-failed"); }} />}<span>{post.category}</span><b>{post.date}</b></div>
-      <article className="article-body"><Markdown content={post.content} /></article>
-      <div className="article-tools"><button onClick={() => void copyLink()}><Copy />{copied ? "已复制" : "复制文章链接"}</button><button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}><ArrowUp />返回顶部</button></div>
+      <article className={`article-body reading-size-${fontSize}`}><Markdown content={post.content} onImageOpen={(src) => setLightbox(Math.max(0, bodyImages.findIndex((item) => item.src === src)))} /></article>
+      <div className="article-tools"><div className="font-controls" aria-label="正文字号"><span>字号</span><button className={fontSize === "small" ? "active" : ""} onClick={() => setFontSize("small")}>小</button><button className={fontSize === "normal" ? "active" : ""} onClick={() => setFontSize("normal")}>中</button><button className={fontSize === "large" ? "active" : ""} onClick={() => setFontSize("large")}>大</button></div><button onClick={() => void copyLink()}><Copy />{copied ? "已复制" : "复制文章链接"}</button><button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}><ArrowUp />返回顶部</button></div>
       <nav className="article-neighbors" aria-label="相邻文章">
-        {previous ? <button onClick={() => go(`post/${previous.slug}`)}><ArrowLeft /><span>上一篇</span><b>{previous.title}</b></button> : <span />}
-        {next ? <button onClick={() => go(`post/${next.slug}`)}><span>下一篇</span><b>{next.title}</b><ArrowRight /></button> : <span />}
+        {previous ? <button onClick={() => go(`post/${previous.slug}`)}><ArrowLeft /><span>上一篇</span><b>{previous.title}</b></button> : <div className="neighbor-empty"><span>上一篇</span><b>已经是第一篇</b></div>}
+        {next ? <button onClick={() => go(`post/${next.slug}`)}><span>下一篇</span><b>{next.title}</b><ArrowRight /></button> : <div className="neighbor-empty"><span>下一篇</span><b>已经是最后一篇</b></div>}
       </nav>
       <aside className="article-end"><span>猫</span><p>谢谢读到这里。<br/><small>如果这篇文章让你想到什么，欢迎继续写下去。</small></p></aside>
       {related.length > 0 && <section className="related-posts"><p>相关阅读</p><div>{related.map((item) => <button key={item.id} onClick={() => go(`post/${item.slug}`)}><small>{item.category}</small><b>{item.title}</b><ArrowUpRight /></button>)}</div></section>}
@@ -174,6 +192,7 @@ function Article({ post, posts, settings }: { post: Post; posts: Post[]; setting
       {toc.length > 0 && <aside className="article-toc"><p><List /> 本文目录</p>{toc.map((item, i) => <a className={activeHeading === item.id ? "active" : ""} key={item.id} href={`#${item.id}`}><span>{String(i + 1).padStart(2, "0")}</span>{item.title}</a>)}</aside>}
     </main>
     <Footer settings={settings} />
+    {lightbox !== null && bodyImages[lightbox] && <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="正文大图" onMouseDown={() => setLightbox(null)}><button className="lightbox-close" onClick={() => setLightbox(null)} aria-label="关闭大图"><X /></button>{bodyImages.length > 1 && <button className="lightbox-prev" onMouseDown={(event) => event.stopPropagation()} onClick={() => setLightbox((lightbox - 1 + bodyImages.length) % bodyImages.length)} aria-label="上一张"><ArrowLeft /></button>}<figure onMouseDown={(event) => event.stopPropagation()}><img src={bodyImages[lightbox].src} alt={bodyImages[lightbox].alt} /><figcaption>{bodyImages[lightbox].alt || `${lightbox + 1} / ${bodyImages.length}`}</figcaption></figure>{bodyImages.length > 1 && <button className="lightbox-next" onMouseDown={(event) => event.stopPropagation()} onClick={() => setLightbox((lightbox + 1) % bodyImages.length)} aria-label="下一张"><ArrowRight /></button>}</div>}
   </>;
 }
 
@@ -183,25 +202,28 @@ function AudioPlayer({ src, title }: { src: string; title: string }) {
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
   const [speed, setSpeed] = useState(1);
+  const [mediaState, setMediaState] = useState<"loading" | "ready" | "error">("loading");
+  useEffect(() => () => { audioRef.current?.pause(); }, []);
   const formatTime = (seconds: number) => Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${Math.floor(seconds % 60).toString().padStart(2, "0")}` : "0:00";
   const toggle = async () => {
     const audio = audioRef.current; if (!audio) return;
-    if (audio.paused) { try { await audio.play(); } catch { setPlaying(false); } }
+    if (mediaState === "error") { setMediaState("loading"); audio.load(); return; }
+    if (audio.paused) { try { document.querySelectorAll("audio").forEach((item) => { if (item !== audio) item.pause(); }); await audio.play(); } catch { setPlaying(false); setMediaState("error"); } }
     else audio.pause();
   };
   const changeSpeed = () => {
     const next = speed === 1 ? 1.25 : speed === 1.25 ? 1.5 : speed === 1.5 ? 2 : 1;
     setSpeed(next); if (audioRef.current) audioRef.current.playbackRate = next;
   };
-  return <figure className={`audio-player ${playing ? "is-playing" : ""}`}>
-    <button className="audio-play" type="button" onClick={() => void toggle()} aria-label={playing ? "暂停音频" : "播放音频"}>{playing ? <Pause /> : <Play />}</button>
-    <div className="audio-info"><span className="audio-art"><Music2 /><i/><i/><i/></span><span><b>{title}</b><small>文章配套音频 · {duration ? formatTime(duration) : "正在读取时长"}</small></span></div>
+  return <figure className={`audio-player ${playing ? "is-playing" : ""} is-${mediaState}`}>
+    <button className="audio-play" type="button" onClick={() => void toggle()} aria-label={mediaState === "error" ? "重新加载音频" : playing ? "暂停音频" : "播放音频"}>{playing ? <Pause /> : mediaState === "loading" ? <LoaderCircle className="spin" /> : <Play />}</button>
+    <div className="audio-info"><span className="audio-art"><Music2 /><i/><i/><i/></span><span><b>{title}</b><small role="status">{mediaState === "error" ? "音频加载失败 · 点击左侧重试" : mediaState === "loading" ? "正在加载音频…" : `文章配套音频 · ${formatTime(duration)}`}</small></span></div>
     <div className="audio-controls"><input aria-label="音频播放进度" type="range" min="0" max={duration || 0} step="0.1" value={current} style={{ "--audio-progress": `${duration ? current / duration * 100 : 0}%` } as React.CSSProperties} onChange={(event) => { const value = Number(event.target.value); setCurrent(value); if (audioRef.current) audioRef.current.currentTime = value; }} /><span>{formatTime(current)} / {formatTime(duration)}</span><button type="button" onClick={changeSpeed} aria-label="切换播放速度">{speed}×</button></div>
-    <audio ref={audioRef} preload="metadata" src={src} onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)} onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); setCurrent(0); }}>您的浏览器不支持音频播放。</audio>
+    <audio ref={audioRef} preload="metadata" src={src} onLoadedMetadata={(event) => { setDuration(event.currentTarget.duration); setMediaState("ready"); }} onCanPlay={() => setMediaState("ready")} onWaiting={() => setMediaState("loading")} onError={() => { setPlaying(false); setMediaState("error"); }} onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); setCurrent(0); }}>您的浏览器不支持音频播放。</audio>
   </figure>;
 }
 
-function Markdown({ content }: { content: string }) {
+function Markdown({ content, onImageOpen }: { content: string; onImageOpen?: (src: string) => void }) {
   const blocks: ReactNode[] = [];
   const lines = content.split("\n");
   let list: string[] = [];
@@ -223,7 +245,7 @@ function Markdown({ content }: { content: string }) {
     else if (line.startsWith("> ")) blocks.push(<blockquote key={index}>{inlineMarkdown(line.slice(2))}</blockquote>);
     else if (line.trim() === "---") blocks.push(<hr key={index} />);
     else if (/^@\[audio(?::[^\]]+)?\]\([^)]+\)$/.test(line)) { const audio = line.match(/^@\[audio(?::([^\]]+))?\]\(([^)]+)\)$/)!; blocks.push(<AudioPlayer key={index} title={audio[1]?.trim() || "文章音频"} src={audio[2]} />); }
-    else if (/^!\[[^\]]*\]\([^)]+\)$/.test(line)) { const image = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)!; blocks.push(<figure key={index}><img src={image[2]} alt={image[1]} loading="lazy" decoding="async" onError={(event) => { event.currentTarget.hidden = true; event.currentTarget.parentElement?.classList.add("article-image-failed"); }} /><figcaption>{image[1]}</figcaption></figure>); }
+    else if (/^!\[[^\]]*\]\([^)]+\)$/.test(line)) { const image = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)!; blocks.push(<figure key={index}><img src={image[2]} alt={image[1]} loading="lazy" decoding="async" tabIndex={onImageOpen ? 0 : undefined} role={onImageOpen ? "button" : undefined} onClick={() => onImageOpen?.(image[2])} onKeyDown={(event) => { if (onImageOpen && (event.key === "Enter" || event.key === " ")) onImageOpen(image[2]); }} onError={(event) => { event.currentTarget.hidden = true; event.currentTarget.parentElement?.classList.add("article-image-failed"); }} /><figcaption>{image[1]}</figcaption></figure>); }
     else blocks.push(<p key={index}>{inlineMarkdown(line)}</p>);
   });
   flushList();
