@@ -1,8 +1,8 @@
 /* oxlint-disable next/no-img-element */
 "use client";
 
-import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, Bold, CheckCircle2, Clock3, Eye, EyeOff, FilePlus2, FileText, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, LoaderCircle, LockKeyhole, LogOut, Maximize2, Menu, Minimize2, Pencil, PenLine, Quote, RefreshCw, Save, Search, Send, Settings, Sparkles, Trash2, X } from "lucide-react";
+import { ChangeEvent, DragEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, BarChart3, Bold, CheckCircle2, Clock3, Code2, Copy, Download, Eye, EyeOff, FilePlus2, FileText, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, LoaderCircle, LockKeyhole, LogOut, Maximize2, Menu, Minus, Minimize2, Pencil, PenLine, Quote, Redo2, RefreshCw, RotateCcw, Save, Search, Send, Settings, Sparkles, Trash2, Undo2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -67,7 +67,7 @@ export function BlogApp({ initialPosts, initialSettings }: { initialPosts: Post[
 function Header({ compact = false, name = "NekoPress" }: { compact?: boolean; name?: string }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return <header className="site-header"><div className="site-width header-inner">
-    <button className="brand" onClick={() => go()} aria-label="返回首页">{name}</button>
+    <button className="brand" onClick={() => go()} aria-label="返回首页"><span className="cat-logo">猫</span>{name}</button>
     <nav className={menuOpen ? "nav-open" : ""} aria-label="主导航">
       <button className={compact ? "active" : ""} onClick={() => { setMenuOpen(false); go(); setTimeout(() => document.querySelector("#latest")?.scrollIntoView(), 40); }}>文章</button>
       <button onClick={() => { setMenuOpen(false); go(); setTimeout(() => document.querySelector("#about")?.scrollIntoView(), 40); }}>关于</button>
@@ -79,6 +79,11 @@ function Header({ compact = false, name = "NekoPress" }: { compact?: boolean; na
 
 function Home({ posts, settings }: { posts: Post[]; settings: SiteSettings }) {
   const featured = posts[0];
+  const [frontQuery, setFrontQuery] = useState("");
+  const [frontCategory, setFrontCategory] = useState("全部");
+  const [visibleCount, setVisibleCount] = useState(settings.postsPerPage || 9);
+  const frontCategories = useMemo(() => ["全部", ...Array.from(new Set(posts.map((post) => post.category)))], [posts]);
+  const filteredPosts = useMemo(() => posts.filter((post) => (frontCategory === "全部" || post.category === frontCategory) && `${post.title} ${post.excerpt} ${post.author}`.toLowerCase().includes(frontQuery.toLowerCase())), [posts, frontCategory, frontQuery]);
   return <>
     <Header name={settings.name} />
     <main id="top" className="site-width page-shell">
@@ -89,12 +94,15 @@ function Home({ posts, settings }: { posts: Post[]; settings: SiteSettings }) {
           <p><Sparkles size={14} /> NEKO EDITORIAL</p>
           <h1>{settings.tagline}</h1>
           <span>{settings.description}</span>
+          {featured && <small>{featured.category} · {formatDate(featured.date)} · {featured.readMinutes} 分钟阅读</small>}
           <button onClick={() => featured && go(`post/${featured.slug}`)}>开始阅读 <ArrowUpRight size={16} /></button>
         </div>
+        <button className="scroll-cue" onClick={() => document.querySelector("#latest")?.scrollIntoView()} aria-label="查看最近文章"><span>SCROLL</span><ArrowRight /></button>
       </section>
       <section id="latest" className="section-block">
         <div className="section-heading"><div><span>Latest stories</span><h2>最近更新</h2></div><p>少一点喧闹，多一点值得读完的内容。</p></div>
-        <div className="post-grid">{posts.slice(0, settings.postsPerPage || 9).map((post, index) => <PostCard post={post} featured={index === 0} key={post.id} />)}</div>
+        <div className="front-discovery"><div className="category-tabs">{frontCategories.map((category) => <button className={frontCategory === category ? "active" : ""} key={category} onClick={() => { setFrontCategory(category); setVisibleCount(settings.postsPerPage || 9); }}>{category}</button>)}</div><label><Search /><input value={frontQuery} onChange={(event) => { setFrontQuery(event.target.value); setVisibleCount(settings.postsPerPage || 9); }} placeholder="搜索文章" aria-label="搜索文章" />{frontQuery && <button onClick={() => setFrontQuery("")} aria-label="清空搜索"><X /></button>}</label></div>
+        {filteredPosts.length ? <><div className="post-grid">{filteredPosts.slice(0, visibleCount).map((post, index) => <PostCard post={post} featured={index === 0 && !frontQuery && frontCategory === "全部"} key={post.id} />)}</div>{visibleCount < filteredPosts.length && <div className="load-more"><button onClick={() => setVisibleCount((count) => count + (settings.postsPerPage || 9))}>加载更多 <ArrowRight /></button></div>}</> : <div className="front-empty"><Search /><h3>没有找到相关文章</h3><p>换一个关键词或分类试试看。</p><button onClick={() => { setFrontQuery(""); setFrontCategory("全部"); }}>查看全部文章</button></div>}
       </section>
       <section id="about" className="about-panel"><span className="cat-mark">猫</span><div><p>ABOUT THIS BLOG</p><h2>{settings.footer}</h2><span>{settings.description}</span></div></section>
     </main>
@@ -116,10 +124,13 @@ function PostCard({ post, featured = false }: { post: Post; featured?: boolean }
 
 function Article({ post, posts, settings }: { post: Post; posts: Post[]; settings: SiteSettings }) {
   const [progress, setProgress] = useState(0);
+  const [activeHeading, setActiveHeading] = useState("");
+  const [copied, setCopied] = useState(false);
   const toc = useMemo(() => post.content.split("\n").filter((line) => line.startsWith("## ")).map((line) => ({ title: line.slice(3), id: headingId(line.slice(3)) })), [post.content]);
   const index = posts.findIndex((item) => item.id === post.id);
   const previous = posts[index + 1];
   const next = posts[index - 1];
+  const related = posts.filter((item) => item.id !== post.id && item.category === post.category).slice(0, 2);
   useEffect(() => {
     const update = () => {
       const height = document.documentElement.scrollHeight - window.innerHeight;
@@ -129,6 +140,12 @@ function Article({ post, posts, settings }: { post: Post; posts: Post[]; setting
     window.addEventListener("scroll", update, { passive: true });
     return () => window.removeEventListener("scroll", update);
   }, []);
+  useEffect(() => {
+    const headings = toc.map((item) => document.getElementById(item.id)).filter(Boolean) as HTMLElement[];
+    const observer = new IntersectionObserver((entries) => entries.forEach((entry) => { if (entry.isIntersecting) setActiveHeading(entry.target.id); }), { rootMargin: "-20% 0px -65%" });
+    headings.forEach((heading) => observer.observe(heading)); return () => observer.disconnect();
+  }, [toc]);
+  async function copyLink() { await navigator.clipboard.writeText(window.location.href); setCopied(true); window.setTimeout(() => setCopied(false), 1800); }
   return <>
     <Header compact name={settings.name} />
     <div className="reading-progress" aria-hidden="true"><span style={{ width: `${progress}%` }} /></div>
@@ -143,13 +160,15 @@ function Article({ post, posts, settings }: { post: Post; posts: Post[]; setting
       </header>
       <div className={`article-cover ${coverTone(post.category)} ${post.coverImage ? "has-image" : ""}`}>{post.coverImage && <img src={post.coverImage} alt="" />}<span>{post.category}</span><b>{post.date}</b></div>
       <article className="article-body"><Markdown content={post.content} /></article>
+      <div className="article-tools"><button onClick={() => void copyLink()}><Copy />{copied ? "已复制" : "复制文章链接"}</button><button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}><ArrowUp />返回顶部</button></div>
       <nav className="article-neighbors" aria-label="相邻文章">
         {previous ? <button onClick={() => go(`post/${previous.slug}`)}><ArrowLeft /><span>上一篇</span><b>{previous.title}</b></button> : <span />}
         {next ? <button onClick={() => go(`post/${next.slug}`)}><span>下一篇</span><b>{next.title}</b><ArrowRight /></button> : <span />}
       </nav>
       <aside className="article-end"><span>猫</span><p>谢谢读到这里。<br/><small>如果这篇文章让你想到什么，欢迎继续写下去。</small></p></aside>
+      {related.length > 0 && <section className="related-posts"><p>相关阅读</p><div>{related.map((item) => <button key={item.id} onClick={() => go(`post/${item.slug}`)}><small>{item.category}</small><b>{item.title}</b><ArrowUpRight /></button>)}</div></section>}
       </div>
-      {toc.length > 0 && <aside className="article-toc"><p><List /> 本文目录</p>{toc.map((item, i) => <a key={item.id} href={`#${item.id}`}><span>{String(i + 1).padStart(2, "0")}</span>{item.title}</a>)}</aside>}
+      {toc.length > 0 && <aside className="article-toc"><p><List /> 本文目录</p>{toc.map((item, i) => <a className={activeHeading === item.id ? "active" : ""} key={item.id} href={`#${item.id}`}><span>{String(i + 1).padStart(2, "0")}</span>{item.title}</a>)}</aside>}
     </main>
     <Footer settings={settings} />
   </>;
@@ -159,21 +178,28 @@ function Markdown({ content }: { content: string }) {
   const blocks: ReactNode[] = [];
   const lines = content.split("\n");
   let list: string[] = [];
+  let code: string[] = [];
+  let inCode = false;
   const flushList = () => {
     if (!list.length) return;
     blocks.push(<ul key={`list-${blocks.length}`}>{list.map((item, i) => <li key={i}>{inlineMarkdown(item)}</li>)}</ul>);
     list = [];
   };
   lines.forEach((line, index) => {
+    if (line.startsWith("```")) { if (inCode) { blocks.push(<pre key={`code-${index}`}><code>{code.join("\n")}</code></pre>); code = []; } inCode = !inCode; return; }
+    if (inCode) { code.push(line); return; }
     if (line.startsWith("- ")) { list.push(line.slice(2)); return; }
     flushList();
     if (!line.trim()) return;
     if (line.startsWith("### ")) blocks.push(<h3 key={index}>{inlineMarkdown(line.slice(4))}</h3>);
     else if (line.startsWith("## ")) blocks.push(<h2 id={headingId(line.slice(3))} key={index}>{inlineMarkdown(line.slice(3))}</h2>);
     else if (line.startsWith("> ")) blocks.push(<blockquote key={index}>{inlineMarkdown(line.slice(2))}</blockquote>);
+    else if (line.trim() === "---") blocks.push(<hr key={index} />);
+    else if (/^!\[[^\]]*\]\([^)]+\)$/.test(line)) { const image = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)!; blocks.push(<figure key={index}><img src={image[2]} alt={image[1]} /><figcaption>{image[1]}</figcaption></figure>); }
     else blocks.push(<p key={index}>{inlineMarkdown(line)}</p>);
   });
   flushList();
+  if (code.length) blocks.push(<pre key="code-last"><code>{code.join("\n")}</code></pre>);
   return blocks;
 }
 
@@ -205,7 +231,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   const [draft, setDraft] = useState(emptyDraft);
   const [remotePosts, setRemotePosts] = useState(posts);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [panel, setPanel] = useState<"posts" | "editor" | "settings">("editor");
+  const [panel, setPanel] = useState<"dashboard" | "posts" | "editor" | "settings">("dashboard");
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("全部");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest" | "title">("newest");
@@ -218,8 +244,14 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   const [dirty, setDirty] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [deploymentStage, setDeploymentStage] = useState<0 | 1 | 2 | 3>(0);
+  const [lastRun, setLastRun] = useState<{ id: number; status: string; conclusion: string | null; html_url: string } | null>(null);
+  const [showPublishCheck, setShowPublishCheck] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Post | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
+  const settingsImportRef = useRef<HTMLInputElement>(null);
+  const undoStack = useRef<string[]>([]);
+  const redoStack = useRef<string[]>([]);
 
   useEffect(() => {
     try {
@@ -240,7 +272,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (dirty) event.preventDefault(); };
-    const shortcut = (event: KeyboardEvent) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); saveDraft(); } };
+    const shortcut = (event: KeyboardEvent) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); saveDraft(); } if (event.key === "Escape") { setShowPublishCheck(false); setDeleteTarget(null); } };
     window.addEventListener("beforeunload", warn); window.addEventListener("keydown", shortcut);
     return () => { window.removeEventListener("beforeunload", warn); window.removeEventListener("keydown", shortcut); };
   }, [dirty, draft]);
@@ -254,6 +286,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
 
   const categories = useMemo(() => ["全部", ...Array.from(new Set(remotePosts.map((post) => post.category)))], [remotePosts]);
   const totalWords = useMemo(() => remotePosts.reduce((total, post) => total + post.content.replace(/\s/g, "").length, 0), [remotePosts]);
+  const settingsDirty = useMemo(() => JSON.stringify(siteSettings) !== JSON.stringify(initialSettings), [siteSettings, initialSettings]);
   const visiblePosts = useMemo(() => remotePosts.filter((post) => (categoryFilter === "全部" || post.category === categoryFilter) && `${post.title} ${post.excerpt}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => sortOrder === "title" ? a.title.localeCompare(b.title, "zh-CN") : sortOrder === "oldest" ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)), [remotePosts, categoryFilter, query, sortOrder]);
 
   const headers = () => ({ Accept: "application/vnd.github+json", Authorization: `Bearer ${token.trim()}`, "X-GitHub-Api-Version": "2022-11-28" });
@@ -286,7 +319,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
       const run = await latestRun();
       if (!run || (previousId && run.id === previousId)) continue;
       if (run.status !== "completed") { setDeploymentStage(2); setMessage("GitHub Pages 正在构建和部署，请稍候…"); continue; }
-      if (run.conclusion === "success") { setDeploymentStage(3); setState("success"); setMessage("网站更新完成，最新内容已经上线。"); return; }
+      if (run.conclusion === "success") { setLastRun(run); setDeploymentStage(3); setState("success"); setMessage("网站更新完成，最新内容已经上线。"); return; }
       setState("error"); setMessage("内容已提交，但网站构建失败。请前往 GitHub Actions 查看日志。"); return;
     }
     setState("success"); setMessage("内容已提交；部署仍在后台进行，可以稍后刷新前台查看。");
@@ -317,7 +350,8 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
       const file = await response.json() as { content: string };
       setRemotePosts(JSON.parse(decodeBase64(file.content)) as Post[]);
       localStorage.setItem("nekopress-repo", JSON.stringify(config));
-      setConnected(true); setState("idle"); setMessage("");
+      setConnected(true); setPanel("dashboard"); setState("idle"); setMessage("");
+      void latestRun().then(setLastRun);
     } catch (error) {
       setState("error"); setMessage(error instanceof Error ? error.message : "连接失败，请稍后重试。");
     }
@@ -328,7 +362,10 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     setDraftStatus("草稿已保存到本机"); setDirty(false);
   }
 
-  function updateDraft(next: Partial<Draft>) { setDraft((current) => ({ ...current, ...next })); setDirty(true); }
+  function updateDraft(next: Partial<Draft>) { if (typeof next.content === "string" && next.content !== draft.content) { undoStack.current.push(draft.content); if (undoStack.current.length > 80) undoStack.current.shift(); redoStack.current = []; } setDraft((current) => ({ ...current, ...next })); setDirty(true); }
+
+  function undoContent() { const previous = undoStack.current.pop(); if (previous === undefined) return; redoStack.current.push(draft.content); setDraft((current) => ({ ...current, content: previous })); setDirty(true); }
+  function redoContent() { const next = redoStack.current.pop(); if (next === undefined) return; undoStack.current.push(draft.content); setDraft((current) => ({ ...current, content: next })); setDirty(true); }
 
   function newPost() { setDraft({ ...emptyDraft, author: siteSettings.author || "Neko", category: siteSettings.defaultCategory || "随笔" }); setEditingId(null); setDirty(false); setMessage(""); setPanel("editor"); }
 
@@ -363,6 +400,14 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     finally { event.target.value = ""; }
   }
 
+  async function uploadInlineImage(event: DragEvent<HTMLTextAreaElement>) {
+    event.preventDefault(); const file = Array.from(event.dataTransfer.files).find((item) => item.type.startsWith("image/")); if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { setState("error"); setMessage("正文图片不能超过 5MB。"); return; }
+    setState("uploading"); setMessage("正在上传正文图片…");
+    try { const prepared = await prepareImage(file); const name = `${slugify(draft.title || "article")}-inline-${Date.now()}.${prepared.extension}`; const body = JSON.stringify({ message: `upload: ${name}`, content: prepared.content, branch: config.branch.trim() }); const response = await fetch(contentsApi(`public/images/${name}`), { method: "PUT", headers: { ...headers(), "Content-Type": "application/json" }, body }); if (!response.ok) throw new Error("正文图片上传失败。"); updateDraft({ content: `${draft.content.trimEnd()}\n\n![${file.name}](./images/${name})\n` }); setState("success"); setMessage("图片已插入正文末尾。"); }
+    catch (error) { setState("error"); setMessage(error instanceof Error ? error.message : "图片上传失败。"); }
+  }
+
   async function publish() {
     if (!config.owner || !config.repo || !token || !draft.title.trim() || !draft.content.trim()) {
       setState("error"); setMessage("请补全仓库信息、令牌、标题与正文。"); return;
@@ -383,7 +428,6 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   }
 
   async function deletePost(post: Post) {
-    if (!window.confirm(`确定删除《${post.title}》吗？此操作会保留在 GitHub 历史记录中。`)) return;
     setState("publishing"); setDeploymentStage(0); setMessage("正在删除文章…");
     try { const previousRun = await latestRun(); const current = await readRepoFile<Post[]>("data/posts.json"); const next = current.data.filter((item) => item.id !== post.id); await writeRepoFile("data/posts.json", next, `delete: ${post.title}`, current.sha); setRemotePosts(next); if (editingId === post.id) newPost(); await waitForDeployment(previousRun?.id ?? null); }
     catch (error) { setState("error"); setMessage(error instanceof Error ? error.message : "删除失败。"); }
@@ -394,6 +438,10 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     try { const previousRun = await latestRun(); let sha: string | undefined; try { sha = (await readRepoFile<SiteSettings>("data/settings.json")).sha; } catch { /* first settings file */ } await writeRepoFile("data/settings.json", siteSettings, "update: blog settings", sha); await waitForDeployment(previousRun?.id ?? null); }
     catch (error) { setState("error"); setMessage(error instanceof Error ? error.message : "设置保存失败。"); }
   }
+
+  function exportSettings() { const blob = new Blob([JSON.stringify(siteSettings, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "nekopress-settings.json"; link.click(); URL.revokeObjectURL(url); }
+
+  async function importSettings(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file) return; try { const next = JSON.parse(await file.text()) as Partial<SiteSettings>; setSiteSettings({ ...initialSettings, ...next }); setState("success"); setMessage("设置已导入，请检查后点击保存。"); } catch { setState("error"); setMessage("设置文件格式无效，请选择 NekoPress 导出的 JSON 文件。"); } finally { event.target.value = ""; } }
 
   return <div className="admin-shell">
     <header className="admin-top"><button className="brand" onClick={() => go()}>Neko<span>Press</span></button><div>{connected && <span className="connected-chip"><CheckCircle2 /> 已连接 {config.owner}/{config.repo}</span>}<Button variant="ghost" onClick={() => go()}><LogOut />退出后台</Button></div></header>
@@ -416,30 +464,32 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     </main> : <main className={`admin-workspace ${focusMode ? "focus-mode" : ""}`}>
       <aside className="admin-sidebar">
         <div className="workspace-id"><span>{siteSettings.name.slice(0, 1)}</span><div><b>{siteSettings.name}</b><small>{config.owner}/{config.repo}</small></div></div>
-        <nav><button className={panel === "posts" ? "active" : ""} onClick={() => setPanel("posts")}><List />文章管理 <span>{remotePosts.length}</span></button><button className={panel === "editor" ? "active" : ""} onClick={() => setPanel("editor")}><PenLine />写作编辑</button><button className={panel === "settings" ? "active" : ""} onClick={() => setPanel("settings")}><Settings />博客设置</button></nav>
+        <nav><button className={panel === "dashboard" ? "active" : ""} onClick={() => setPanel("dashboard")}><BarChart3 />概览</button><button className={panel === "posts" ? "active" : ""} onClick={() => setPanel("posts")}><List />文章管理 <span>{remotePosts.length}</span></button><button className={panel === "editor" ? "active" : ""} onClick={() => setPanel("editor")}><PenLine />写作编辑{dirty && <i className="nav-dot" />}</button><button className={panel === "settings" ? "active" : ""} onClick={() => setPanel("settings")}><Settings />博客设置{settingsDirty && <i className="nav-dot" />}</button></nav>
         <div className="sidebar-bottom"><div className="connection-card"><span><i/>仓库已连接</span><b>{config.branch}</b><p><LockKeyhole />令牌仅存在当前页面，刷新后自动清除。</p></div><button onClick={() => { setToken(""); setConnected(false); }}><KeyRound />断开并清除令牌</button></div>
       </aside>
 
       <section className="workspace-main">
-        <header className="workspace-heading"><div><p>{panel === "posts" ? "CONTENT" : panel === "settings" ? "SETTINGS" : "EDITOR"}</p><h1>{panel === "posts" ? "文章管理" : panel === "settings" ? "博客设置" : editingId ? "编辑文章" : "写一篇新文章"}</h1></div><div className="workspace-actions">{panel === "editor" && <Button className="focus-toggle" variant="outline" onClick={() => setFocusMode(!focusMode)}>{focusMode ? <Minimize2 /> : <Maximize2 />}{focusMode ? "退出专注" : "专注模式"}</Button>}{panel !== "settings" && <Button onClick={newPost}><FilePlus2 />新文章</Button>}</div></header>
+        <header className="workspace-heading"><div><p>{panel === "dashboard" ? "OVERVIEW" : panel === "posts" ? "CONTENT" : panel === "settings" ? "SETTINGS" : "EDITOR"}</p><h1>{panel === "dashboard" ? `晚上好，${siteSettings.author}` : panel === "posts" ? "文章管理" : panel === "settings" ? "博客设置" : editingId ? "编辑文章" : "写一篇新文章"}</h1></div><div className="workspace-actions">{panel === "editor" && <Button className="focus-toggle" variant="outline" onClick={() => setFocusMode(!focusMode)}>{focusMode ? <Minimize2 /> : <Maximize2 />}{focusMode ? "退出专注" : "专注模式"}</Button>}{panel !== "settings" && <Button onClick={newPost}><FilePlus2 />新文章</Button>}</div></header>
         {message && <output className={`status-message workspace-status ${state}`}>{state === "success" ? <CheckCircle2 /> : state === "deploying" || state === "publishing" || state === "uploading" ? <LoaderCircle className="spin" /> : null}<span>{message}</span></output>}
         {deploymentStage > 0 && <div className="deployment-progress"><div className={deploymentStage >= 1 ? "done" : ""}><span>{deploymentStage > 1 ? <CheckCircle2 /> : "1"}</span><b>提交内容</b></div><i/><div className={deploymentStage >= 2 ? "done" : ""}><span>{deploymentStage > 2 ? <CheckCircle2 /> : "2"}</span><b>构建网站</b></div><i/><div className={deploymentStage >= 3 ? "done" : ""}><span>{deploymentStage >= 3 ? <CheckCircle2 /> : "3"}</span><b>正式上线</b></div></div>}
 
+        {panel === "dashboard" && <div className="dashboard-grid"><div className="dashboard-stats"><article><span><FileText /></span><b>{remotePosts.length}</b><small>已发布文章</small></article><article><span><ListFilter /></span><b>{categories.length - 1}</b><small>内容分类</small></article><article><span><Clock3 /></span><b>{Math.max(1, Math.ceil(totalWords / 500))}</b><small>累计阅读分钟</small></article></div><section className="recent-panel"><div><h2>最近文章</h2><button onClick={() => setPanel("posts")}>查看全部 <ArrowRight /></button></div>{remotePosts.slice(0,4).map((post) => <button className="recent-row" key={post.id} onClick={() => editPost(post)}><span className={coverTone(post.category)}>{post.category.slice(0,1)}</span><div><b>{post.title}</b><small>{post.category} · {post.date}</small></div><Pencil /></button>)}</section><aside className="deploy-card"><div><GitBranch /><span><b>GitHub Pages</b><small>最近部署状态</small></span></div><strong className={lastRun?.conclusion === "success" ? "ok" : ""}>{lastRun?.status === "completed" ? lastRun.conclusion === "success" ? "运行正常" : "部署失败" : lastRun ? "正在运行" : "等待读取"}</strong>{lastRun?.html_url && <a href={lastRun.html_url} target="_blank" rel="noreferrer">查看 GitHub Actions <ArrowUpRight /></a>}<button onClick={() => void latestRun().then(setLastRun)}><RefreshCw />刷新状态</button></aside></div>}
+
         {panel === "posts" && <><div className="content-stats"><article><FileText /><span><b>{remotePosts.length}</b><small>已发布文章</small></span></article><article><BarChart3 /><span><b>{categories.length - 1}</b><small>内容分类</small></span></article><article><Clock3 /><span><b>{Math.max(1, Math.ceil(totalWords / 500))}</b><small>分钟总阅读量</small></span></article></div><div className="manage-panel">
           <div className="post-tools"><label><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题或摘要" /></label><label><ListFilter /><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label><ArrowUpRight /><select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as typeof sortOrder)}><option value="newest">最新发布</option><option value="oldest">最早发布</option><option value="title">按标题</option></select></label><button className="sync-button" onClick={() => void refreshPosts()} disabled={state === "connecting"}><RefreshCw className={state === "connecting" ? "spin" : ""} />同步</button></div>
-          <div className="admin-post-list">{visiblePosts.length ? visiblePosts.map((post) => <article key={post.id}><div className={`admin-post-cover ${coverTone(post.category)}`}>{post.coverImage ? <img src={post.coverImage} alt="" /> : post.category.slice(0, 1)}</div><div><small>{post.category} · {post.date} · {post.readMinutes} 分钟</small><h2>{post.title}</h2><p>{post.excerpt}</p></div><div className="post-row-actions"><button onClick={() => go(`post/${post.slug}`)}><Eye />预览</button><button onClick={() => editPost(post)}><Pencil />编辑</button><button className="danger" onClick={() => void deletePost(post)}><Trash2 />删除</button></div></article>) : <div className="list-empty"><FileText /><p>没有符合条件的文章</p><Button onClick={newPost}><FilePlus2 />写一篇新文章</Button></div>}</div>
+          <div className="admin-post-list">{visiblePosts.length ? visiblePosts.map((post) => <article key={post.id}><div className={`admin-post-cover ${coverTone(post.category)}`}>{post.coverImage ? <img src={post.coverImage} alt="" /> : post.category.slice(0, 1)}</div><div><small>{post.category} · {post.date} · {post.readMinutes} 分钟</small><h2>{post.title}</h2><p>{post.excerpt}</p></div><div className="post-row-actions"><button onClick={() => go(`post/${post.slug}`)}><Eye />预览</button><button onClick={() => editPost(post)}><Pencil />编辑</button><button className="danger" onClick={() => setDeleteTarget(post)}><Trash2 />删除</button></div></article>) : <div className="list-empty"><FileText /><p>没有符合条件的文章</p><Button onClick={newPost}><FilePlus2 />写一篇新文章</Button></div>}</div>
         </div></>}
 
         {panel === "editor" && <div className="editor-workspace">
           <div className="mobile-editor-tabs"><button type="button" className={!mobilePreview ? "active" : ""} onClick={() => setMobilePreview(false)}><PenLine />编辑</button><button type="button" className={mobilePreview ? "active" : ""} onClick={() => setMobilePreview(true)}><Eye />预览</button></div>
-          <form className={`editor-panel ${mobilePreview ? "mobile-hidden" : ""}`} onSubmit={(event) => { event.preventDefault(); void publish(); }}>
+          <form className={`editor-panel ${mobilePreview ? "mobile-hidden" : ""}`} onSubmit={(event) => { event.preventDefault(); setShowPublishCheck(true); }}>
             <section className="write-section">
-              <div className="form-heading"><div><PenLine /><span><b>{editingId ? "编辑现有文章" : "新文章"}</b><small>{draftStatus} · Ctrl/⌘ + S 保存</small></span></div>{editingId && <span className="secure-chip">编辑模式</span>}</div>
+              <div className="form-heading"><div><PenLine /><span><b>{editingId ? "编辑现有文章" : "新文章"}</b><small>{draftStatus} · Ctrl/⌘ + S 保存</small></span></div><span className="completion-chip">{[draft.title.trim(), draft.excerpt.trim(), draft.content.trim()].filter(Boolean).length}/3 已完成</span></div>
               <div className="writer-title"><Input className="title-input" value={draft.title} onChange={(e) => updateDraft({ title: e.target.value })} placeholder="给这篇文章一个好标题" /><p>{draft.title.length} 字 · {editingId ? "正在编辑已发布文章" : "新文章"}</p></div>
               <div className="editor-meta-strip"><Field label="分类"><Input value={draft.category} onChange={(e) => updateDraft({ category: e.target.value })} /></Field><Field label="作者"><Input value={draft.author} onChange={(e) => updateDraft({ author: e.target.value })} /></Field><Field label="文章链接"><Input value={draft.slug} onChange={(e) => updateDraft({ slug: slugifyInput(e.target.value) })} placeholder={slugify(draft.title) || "article-url"} /></Field></div>
               <Field label="封面图片"><div className="cover-field"><Input value={draft.coverImage} onChange={(e) => updateDraft({ coverImage: e.target.value })} placeholder="图片 URL，或直接上传" /><Button type="button" variant="outline" onClick={() => imageRef.current?.click()} disabled={state === "uploading"}><ImagePlus />上传</Button><input ref={imageRef} className="file-input" type="file" accept="image/*" onChange={(event) => void uploadImage(event)} /></div>{draft.coverImage && <div className="cover-preview"><img src={draft.coverImage} alt="封面预览" /><button type="button" onClick={() => updateDraft({ coverImage: "" })}><X />移除封面</button></div>}<small className="token-hint">上传时会自动压缩大图；支持 JPG、PNG、WebP、GIF 和 SVG，最大 5MB</small></Field>
               <Field label="摘要"><Textarea value={draft.excerpt} onChange={(e) => updateDraft({ excerpt: e.target.value })} placeholder="用一两句话说明这篇文章讲什么" /></Field>
-              <Field label="正文"><div className="markdown-toolbar" aria-label="Markdown 工具栏"><button type="button" onClick={() => insertMarkdown("## ", "", "小标题")}><Heading2 />标题</button><button type="button" onClick={() => insertMarkdown("**", "**")}><Bold />粗体</button><button type="button" onClick={() => insertMarkdown("> ", "", "引用内容")}><Quote />引用</button><button type="button" onClick={() => insertMarkdown("- ", "", "列表项目")}><List />列表</button><button type="button" onClick={() => insertMarkdown("[", "](https://)", "链接文字")}><Link2 />链接</button></div><Textarea ref={editorRef} className="content-editor" value={draft.content} onChange={(e) => updateDraft({ content: e.target.value })} /></Field>
+              <Field label="正文"><div className="markdown-toolbar" aria-label="Markdown 工具栏"><button type="button" onClick={undoContent} title="撤销"><Undo2 />撤销</button><button type="button" onClick={redoContent} title="重做"><Redo2 />重做</button><i/><button type="button" onClick={() => insertMarkdown("## ", "", "小标题")}><Heading2 />标题</button><button type="button" onClick={() => insertMarkdown("**", "**")}><Bold />粗体</button><button type="button" onClick={() => insertMarkdown("> ", "", "引用内容")}><Quote />引用</button><button type="button" onClick={() => insertMarkdown("- ", "", "列表项目")}><List />列表</button><button type="button" onClick={() => insertMarkdown("[", "](https://)", "链接文字")}><Link2 />链接</button><button type="button" onClick={() => insertMarkdown("```\n", "\n```", "代码")}><Code2 />代码</button><button type="button" onClick={() => insertMarkdown("\n---\n", "", "")}><Minus />分隔线</button></div><Textarea ref={editorRef} className="content-editor" value={draft.content} onChange={(e) => updateDraft({ content: e.target.value })} onDragOver={(event) => event.preventDefault()} onDrop={(event) => void uploadInlineImage(event)} placeholder="开始写作，也可以把图片拖到这里…" /></Field>
             </section>
             <div className="publish-row"><p><Eye /> {draft.content.length} 字 · 约 {preview.readMinutes} 分钟阅读</p><div><Button type="button" variant="outline" onClick={saveDraft}><Save />保存草稿</Button><Button type="submit" size="lg" disabled={state === "publishing" || state === "deploying"}>{state === "publishing" ? <LoaderCircle className="spin" /> : <Send />} {state === "publishing" ? "正在提交…" : editingId ? "更新文章" : "发布文章"}</Button></div></div>
           </form>
@@ -449,11 +499,13 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
         {panel === "settings" && <form className="settings-groups" onSubmit={(event) => { event.preventDefault(); void saveSettings(); }}>
           <section className="settings-panel"><div className="settings-intro"><FileText /><div><h2>基础信息</h2><p>决定站点名称、默认署名与内容基调。</p></div></div><div className="settings-grid"><Field label="博客名称"><Input value={siteSettings.name} onChange={(e) => setSiteSettings({ ...siteSettings, name: e.target.value })} /></Field><Field label="默认作者"><Input value={siteSettings.author} onChange={(e) => setSiteSettings({ ...siteSettings, author: e.target.value })} /></Field><Field label="默认文章分类"><Input value={siteSettings.defaultCategory} onChange={(e) => setSiteSettings({ ...siteSettings, defaultCategory: e.target.value })} /></Field></div><Field label="博客简介"><Textarea value={siteSettings.description} onChange={(e) => setSiteSettings({ ...siteSettings, description: e.target.value })} /></Field></section>
           <section className="settings-panel"><div className="settings-intro"><Sparkles /><div><h2>首页展示</h2><p>控制访客进入网站后首先看到的内容。</p></div></div><Field label="首页主标题"><Input value={siteSettings.tagline} onChange={(e) => setSiteSettings({ ...siteSettings, tagline: e.target.value })} /></Field><div className="settings-grid"><Field label="首页文章数量"><Input type="number" min={1} max={30} value={siteSettings.postsPerPage} onChange={(e) => setSiteSettings({ ...siteSettings, postsPerPage: Math.max(1, Math.min(30, Number(e.target.value) || 9)) })} /></Field><Field label="关于区域标题"><Input value={siteSettings.footer} onChange={(e) => setSiteSettings({ ...siteSettings, footer: e.target.value })} /></Field></div></section>
-          <section className="settings-panel"><div className="settings-intro"><GitBranch /><div><h2>链接与页脚</h2><p>补充作者主页和全站版权信息。</p></div></div><div className="settings-grid"><Field label="GitHub 链接"><Input type="url" value={siteSettings.github} onChange={(e) => setSiteSettings({ ...siteSettings, github: e.target.value })} /></Field><Field label="页脚版权文字"><Input value={siteSettings.copyright} onChange={(e) => setSiteSettings({ ...siteSettings, copyright: e.target.value })} /></Field></div></section>
-          <div className="settings-submit"><span>保存后将自动触发网站更新</span><Button type="submit" size="lg" disabled={state === "publishing" || state === "deploying"}><Save />保存全部设置</Button></div>
+          <section className="settings-panel"><div className="settings-intro"><GitBranch /><div><h2>链接与页脚</h2><p>补充作者主页和全站版权信息。</p></div></div><div className="settings-grid"><Field label="GitHub 链接"><Input type="url" value={siteSettings.github} aria-invalid={Boolean(siteSettings.github && !/^https:\/\//.test(siteSettings.github))} onChange={(e) => setSiteSettings({ ...siteSettings, github: e.target.value })} /><small className="token-hint">请输入完整的 https:// 地址</small></Field><Field label="页脚版权文字"><Input value={siteSettings.copyright} onChange={(e) => setSiteSettings({ ...siteSettings, copyright: e.target.value })} /></Field></div></section>
+          <div className="settings-submit"><span>保存后将自动触发网站更新</span><input ref={settingsImportRef} className="file-input" type="file" accept="application/json" onChange={(event) => void importSettings(event)} /><Button type="button" variant="outline" onClick={() => setSiteSettings(initialSettings)}><RotateCcw />恢复默认</Button><Button type="button" variant="outline" onClick={() => settingsImportRef.current?.click()}><Upload />导入</Button><Button type="button" variant="outline" onClick={exportSettings}><Download />导出</Button><Button type="submit" size="lg" disabled={state === "publishing" || state === "deploying"}><Save />保存全部设置</Button></div>
         </form>}
       </section>
     </main>}
+    {showPublishCheck && <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowPublishCheck(false)}><section className="publish-check" role="dialog" aria-modal="true" aria-labelledby="publish-check-title" onMouseDown={(event) => event.stopPropagation()}><header><span><CheckCircle2 /></span><div><h2 id="publish-check-title">发布前检查</h2><p>确认文章信息完整后再提交到 GitHub。</p></div><button onClick={() => setShowPublishCheck(false)} aria-label="关闭"><X /></button></header><ul><li className={draft.title.trim() ? "ok" : ""}><span>{draft.title.trim() ? <CheckCircle2 /> : "1"}</span><div><b>文章标题</b><small>{draft.title.trim() || "尚未填写"}</small></div></li><li className={draft.excerpt.trim() ? "ok" : ""}><span>{draft.excerpt.trim() ? <CheckCircle2 /> : "2"}</span><div><b>文章摘要</b><small>{draft.excerpt.trim() ? `${draft.excerpt.length} 字` : "建议填写简短摘要"}</small></div></li><li className={draft.content.trim() ? "ok" : ""}><span>{draft.content.trim() ? <CheckCircle2 /> : "3"}</span><div><b>正文内容</b><small>{draft.content.replace(/\s/g, "").length} 字 · 约 {preview.readMinutes} 分钟</small></div></li><li className={draft.coverImage ? "ok optional" : "optional"}><span>{draft.coverImage ? <CheckCircle2 /> : <ImagePlus />}</span><div><b>文章封面</b><small>{draft.coverImage ? "已设置" : "可选，未设置时使用分类封面"}</small></div></li></ul><footer><Button variant="outline" onClick={() => setShowPublishCheck(false)}>继续编辑</Button><Button disabled={!draft.title.trim() || !draft.content.trim()} onClick={() => { setShowPublishCheck(false); void publish(); }}><Send />确认{editingId ? "更新" : "发布"}</Button></footer></section></div>}
+    {deleteTarget && <div className="modal-backdrop" role="presentation" onMouseDown={() => setDeleteTarget(null)}><section className="publish-check delete-check" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" onMouseDown={(event) => event.stopPropagation()}><header><span><Trash2 /></span><div><h2 id="delete-title">删除这篇文章？</h2><p>《{deleteTarget.title}》将从网站移除。</p></div><button onClick={() => setDeleteTarget(null)} aria-label="关闭"><X /></button></header><div className="delete-note"><LockKeyhole />GitHub 会保留历史版本，必要时仍可恢复。</div><footer><Button variant="outline" onClick={() => setDeleteTarget(null)}>取消</Button><Button className="danger-confirm" onClick={() => { const post = deleteTarget; setDeleteTarget(null); void deletePost(post); }}><Trash2 />确认删除</Button></footer></section></div>}
   </div>;
 }
 
