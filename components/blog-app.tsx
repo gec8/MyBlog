@@ -2,7 +2,7 @@
 "use client";
 
 import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, ArrowUpRight, Bold, CheckCircle2, Clock3, Eye, EyeOff, FilePlus2, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, LoaderCircle, LogOut, Menu, Pencil, PenLine, Quote, Save, Search, Send, Settings, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, Bold, CheckCircle2, Clock3, Eye, EyeOff, FilePlus2, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, LoaderCircle, LogOut, Menu, Pencil, PenLine, Quote, RefreshCw, Save, Search, Send, Settings, Sparkles, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,7 +20,7 @@ export type Post = {
   coverImage?: string;
 };
 
-export type SiteSettings = { name: string; tagline: string; description: string; author: string; github: string; footer: string };
+export type SiteSettings = { name: string; tagline: string; description: string; author: string; defaultCategory: string; postsPerPage: number; github: string; footer: string; copyright: string };
 
 type Route = { view: "home" } | { view: "admin" } | { view: "post"; slug: string };
 
@@ -94,7 +94,7 @@ function Home({ posts, settings }: { posts: Post[]; settings: SiteSettings }) {
       </section>
       <section id="latest" className="section-block">
         <div className="section-heading"><div><span>Latest stories</span><h2>最近更新</h2></div><p>少一点喧闹，多一点值得读完的内容。</p></div>
-        <div className="post-grid">{posts.map((post, index) => <PostCard post={post} featured={index === 0} key={post.id} />)}</div>
+        <div className="post-grid">{posts.slice(0, settings.postsPerPage || 9).map((post, index) => <PostCard post={post} featured={index === 0} key={post.id} />)}</div>
       </section>
       <section id="about" className="about-panel"><span className="cat-mark">猫</span><div><p>ABOUT THIS BLOG</p><h2>{settings.footer}</h2><span>{settings.description}</span></div></section>
     </main>
@@ -161,20 +161,29 @@ function Markdown({ content }: { content: string }) {
   let list: string[] = [];
   const flushList = () => {
     if (!list.length) return;
-    blocks.push(<ul key={`list-${blocks.length}`}>{list.map((item, i) => <li key={i}>{item}</li>)}</ul>);
+    blocks.push(<ul key={`list-${blocks.length}`}>{list.map((item, i) => <li key={i}>{inlineMarkdown(item)}</li>)}</ul>);
     list = [];
   };
   lines.forEach((line, index) => {
     if (line.startsWith("- ")) { list.push(line.slice(2)); return; }
     flushList();
     if (!line.trim()) return;
-    if (line.startsWith("### ")) blocks.push(<h3 key={index}>{line.slice(4)}</h3>);
-    else if (line.startsWith("## ")) blocks.push(<h2 id={headingId(line.slice(3))} key={index}>{line.slice(3)}</h2>);
-    else if (line.startsWith("> ")) blocks.push(<blockquote key={index}>{line.slice(2)}</blockquote>);
-    else blocks.push(<p key={index}>{line}</p>);
+    if (line.startsWith("### ")) blocks.push(<h3 key={index}>{inlineMarkdown(line.slice(4))}</h3>);
+    else if (line.startsWith("## ")) blocks.push(<h2 id={headingId(line.slice(3))} key={index}>{inlineMarkdown(line.slice(3))}</h2>);
+    else if (line.startsWith("> ")) blocks.push(<blockquote key={index}>{inlineMarkdown(line.slice(2))}</blockquote>);
+    else blocks.push(<p key={index}>{inlineMarkdown(line)}</p>);
   });
   flushList();
   return blocks;
+}
+
+function inlineMarkdown(value: string) {
+  return value.split(/(\*\*.*?\*\*|\[[^\]]+\]\([^)]+\))/g).filter(Boolean).map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) return <strong key={index}>{part.slice(2, -2)}</strong>;
+    const link = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (link) return <a key={index} href={link[2]} target={link[2].startsWith("http") ? "_blank" : undefined} rel="noreferrer">{link[1]}</a>;
+    return part;
+  });
 }
 
 function headingId(value: string) {
@@ -186,8 +195,8 @@ function NotFound() {
 }
 
 type RepoConfig = { owner: string; repo: string; branch: string };
-type Draft = { title: string; excerpt: string; category: string; author: string; coverImage: string; content: string };
-const emptyDraft: Draft = { title: "", excerpt: "", category: "随笔", author: "Neko", coverImage: "", content: "## 从这里开始\n\n写下你的正文。" };
+type Draft = { title: string; slug: string; excerpt: string; category: string; author: string; coverImage: string; content: string };
+const emptyDraft: Draft = { title: "", slug: "", excerpt: "", category: "随笔", author: "Neko", coverImage: "", content: "## 从这里开始\n\n写下你的正文。" };
 
 function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: SiteSettings }) {
   const [config, setConfig] = useState<RepoConfig>({ owner: "", repo: "", branch: "main" });
@@ -199,6 +208,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   const [panel, setPanel] = useState<"posts" | "editor" | "settings">("editor");
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("全部");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest" | "title">("newest");
   const [siteSettings, setSiteSettings] = useState(initialSettings);
   const [connected, setConnected] = useState(false);
   const [mobilePreview, setMobilePreview] = useState(false);
@@ -214,7 +224,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
       const saved = localStorage.getItem("nekopress-repo");
       if (saved) queueMicrotask(() => setConfig(JSON.parse(saved)));
       const savedDraft = localStorage.getItem("nekopress-draft");
-      if (savedDraft) queueMicrotask(() => setDraft(JSON.parse(savedDraft)));
+      if (savedDraft) queueMicrotask(() => setDraft({ ...emptyDraft, ...JSON.parse(savedDraft) }));
     } catch { /* ignore malformed local preference */ }
   }, []);
 
@@ -234,14 +244,14 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   }, [dirty, draft]);
 
   const preview = useMemo<Post>(() => ({
-    id: "preview", slug: slugify(draft.title) || "preview", title: draft.title || "文章标题",
+    id: "preview", slug: draft.slug.trim() || slugify(draft.title) || "preview", title: draft.title || "文章标题",
     excerpt: draft.excerpt || "一句清楚的摘要会帮助读者决定是否继续阅读。", category: draft.category,
     author: draft.author || "Neko", coverImage: draft.coverImage.trim() || undefined, date: new Date().toISOString().slice(0, 10),
     readMinutes: Math.max(1, Math.ceil(draft.content.length / 500)), content: draft.content,
   }), [draft]);
 
   const categories = useMemo(() => ["全部", ...Array.from(new Set(remotePosts.map((post) => post.category)))], [remotePosts]);
-  const visiblePosts = useMemo(() => remotePosts.filter((post) => (categoryFilter === "全部" || post.category === categoryFilter) && `${post.title} ${post.excerpt}`.toLowerCase().includes(query.toLowerCase())), [remotePosts, categoryFilter, query]);
+  const visiblePosts = useMemo(() => remotePosts.filter((post) => (categoryFilter === "全部" || post.category === categoryFilter) && `${post.title} ${post.excerpt}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => sortOrder === "title" ? a.title.localeCompare(b.title, "zh-CN") : sortOrder === "oldest" ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)), [remotePosts, categoryFilter, query, sortOrder]);
 
   const headers = () => ({ Accept: "application/vnd.github+json", Authorization: `Bearer ${token.trim()}`, "X-GitHub-Api-Version": "2022-11-28" });
   const contentsApi = (path: string) => `https://api.github.com/repos/${config.owner.trim()}/${config.repo.trim()}/contents/${path}`;
@@ -259,6 +269,26 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     if (!response.ok) throw new Error(response.status === 409 ? "远程内容已更新，请刷新文章列表后重试。" : "提交失败，请确认令牌拥有 Contents: Read and write 权限。");
   }
 
+  async function latestRun() {
+    const response = await fetch(`https://api.github.com/repos/${config.owner.trim()}/${config.repo.trim()}/actions/runs?per_page=1`, { headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" } });
+    if (!response.ok) return null;
+    const result = await response.json() as { workflow_runs: { id: number; status: string; conclusion: string | null; html_url: string }[] };
+    return result.workflow_runs[0] ?? null;
+  }
+
+  async function waitForDeployment(previousId: number | null) {
+    setState("deploying"); setMessage("内容已提交，正在等待 GitHub Pages 开始更新…");
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 5000));
+      const run = await latestRun();
+      if (!run || (previousId && run.id === previousId)) continue;
+      if (run.status !== "completed") { setMessage("GitHub Pages 正在构建和部署，请稍候…"); continue; }
+      if (run.conclusion === "success") { setState("success"); setMessage("网站更新完成，最新内容已经上线。"); return; }
+      setState("error"); setMessage("内容已提交，但网站构建失败。请前往 GitHub Actions 查看日志。"); return;
+    }
+    setState("success"); setMessage("内容已提交；部署仍在后台进行，可以稍后刷新前台查看。");
+  }
+
   async function connect() {
     const owner = config.owner.trim();
     const repo = config.repo.trim();
@@ -267,11 +297,18 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     if (!accessToken) {
       setState("error"); setMessage("请输入 GitHub 访问令牌。输入框中的灰色字符只是示例，并不是已填写的令牌。"); return;
     }
+    if (!accessToken.startsWith("github_pat_")) {
+      setState("error"); setMessage("令牌格式不正确。请粘贴以 github_pat_ 开头的 Fine-grained token。"); return;
+    }
     if (!owner || !repo || !branch) {
       setState("error"); setMessage("请补全 GitHub 用户名、仓库名和分支。"); return;
     }
     setState("connecting"); setMessage("");
     try {
+      const repository = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${accessToken}`, "X-GitHub-Api-Version": "2022-11-28" } });
+      if (!repository.ok) throw new Error(repository.status === 401 ? "令牌无效或已过期。" : repository.status === 404 ? "找不到仓库，请检查用户名和仓库名。" : "无法验证仓库权限。");
+      const repositoryInfo = await repository.json() as { permissions?: { push?: boolean } };
+      if (repositoryInfo.permissions && !repositoryInfo.permissions.push) throw new Error("此令牌没有写入权限，请为 MyBlog 开启 Contents: Read and write。");
       const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/data/posts.json?ref=${encodeURIComponent(branch)}`, { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${accessToken}`, "X-GitHub-Api-Version": "2022-11-28" } });
       if (!response.ok) throw new Error(response.status === 401 ? "令牌无效或已过期。" : response.status === 403 ? "令牌权限不足，请检查 Contents: Read and write。" : response.status === 404 ? "仓库、分支或 data/posts.json 不存在。" : "连接失败，请稍后重试。");
       const file = await response.json() as { content: string };
@@ -290,9 +327,15 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
 
   function updateDraft(next: Partial<Draft>) { setDraft((current) => ({ ...current, ...next })); setDirty(true); }
 
-  function newPost() { setDraft({ ...emptyDraft, author: siteSettings.author || "Neko" }); setEditingId(null); setDirty(false); setMessage(""); setPanel("editor"); }
+  function newPost() { setDraft({ ...emptyDraft, author: siteSettings.author || "Neko", category: siteSettings.defaultCategory || "随笔" }); setEditingId(null); setDirty(false); setMessage(""); setPanel("editor"); }
 
-  function editPost(post: Post) { setDraft({ title: post.title, excerpt: post.excerpt, category: post.category, author: post.author, coverImage: post.coverImage ?? "", content: post.content }); setEditingId(post.id); setDirty(false); setMessage(""); setPanel("editor"); }
+  function editPost(post: Post) { setDraft({ title: post.title, slug: post.slug, excerpt: post.excerpt, category: post.category, author: post.author, coverImage: post.coverImage ?? "", content: post.content }); setEditingId(post.id); setDirty(false); setMessage(""); setPanel("editor"); }
+
+  async function refreshPosts() {
+    setState("connecting"); setMessage("正在读取仓库中的最新文章…");
+    try { const current = await readRepoFile<Post[]>("data/posts.json"); setRemotePosts(current.data); setState("success"); setMessage(`已同步 ${current.data.length} 篇文章。`); }
+    catch (error) { setState("error"); setMessage(error instanceof Error ? error.message : "同步失败。"); }
+  }
 
   function insertMarkdown(prefix: string, suffix = prefix, placeholder = "文字") {
     const area = editorRef.current; if (!area) return;
@@ -306,10 +349,10 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     if (!file.type.startsWith("image/") || file.size > 5 * 1024 * 1024) { setState("error"); setMessage("请选择不超过 5MB 的图片文件。"); return; }
     setState("uploading"); setMessage("正在上传图片…");
     try {
-      const extension = file.name.split(".").pop()?.replace(/[^a-z0-9]/gi, "").toLowerCase() || "jpg";
+      const prepared = await prepareImage(file);
+      const extension = prepared.extension;
       const name = `${slugify(draft.title || "cover")}-${Date.now()}.${extension}`;
-      const content = await fileToBase64(file);
-      const body = JSON.stringify({ message: `upload: ${name}`, content, branch: config.branch.trim() });
+      const body = JSON.stringify({ message: `upload: ${name}`, content: prepared.content, branch: config.branch.trim() });
       const response = await fetch(contentsApi(`public/images/${name}`), { method: "PUT", headers: { ...headers(), "Content-Type": "application/json" }, body });
       if (!response.ok) throw new Error("图片上传失败，请检查 Contents 写入权限。");
       updateDraft({ coverImage: `./images/${name}` }); setState("success"); setMessage("图片已上传并设为封面。");
@@ -323,14 +366,14 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     }
     setState("publishing"); setMessage("");
     try {
+      const previousRun = await latestRun();
       const current = await readRepoFile<Post[]>("data/posts.json");
       if (current.data.some((post) => post.slug === preview.slug && post.id !== editingId)) throw new Error("已有文章使用相同标题或链接，请修改标题后再发布。");
       const nextPost = { ...preview, id: editingId ?? `${preview.slug}-${Date.now()}`, date: editingId ? current.data.find((post) => post.id === editingId)?.date ?? preview.date : preview.date };
       const nextPosts = editingId ? current.data.map((post) => post.id === editingId ? nextPost : post) : [nextPost, ...current.data];
       await writeRepoFile("data/posts.json", nextPosts, editingId ? `update: ${draft.title}` : `publish: ${draft.title}`, current.sha);
       setRemotePosts(nextPosts); setEditingId(nextPost.id); setDirty(false); localStorage.removeItem("nekopress-draft");
-      setState("deploying"); setMessage("文章已提交，GitHub Pages 正在更新；通常需要 1–2 分钟。");
-      window.setTimeout(() => { setState("success"); setMessage("提交成功。稍后刷新前台即可看到最新内容。"); }, 6000);
+      await waitForDeployment(previousRun?.id ?? null);
     } catch (error) {
       setState("error"); setMessage(error instanceof Error ? error.message : "发布失败，请稍后重试。");
     }
@@ -339,13 +382,13 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   async function deletePost(post: Post) {
     if (!window.confirm(`确定删除《${post.title}》吗？此操作会保留在 GitHub 历史记录中。`)) return;
     setState("publishing"); setMessage("正在删除文章…");
-    try { const current = await readRepoFile<Post[]>("data/posts.json"); const next = current.data.filter((item) => item.id !== post.id); await writeRepoFile("data/posts.json", next, `delete: ${post.title}`, current.sha); setRemotePosts(next); if (editingId === post.id) newPost(); setState("success"); setMessage("文章已删除，网站正在自动更新。"); }
+    try { const previousRun = await latestRun(); const current = await readRepoFile<Post[]>("data/posts.json"); const next = current.data.filter((item) => item.id !== post.id); await writeRepoFile("data/posts.json", next, `delete: ${post.title}`, current.sha); setRemotePosts(next); if (editingId === post.id) newPost(); await waitForDeployment(previousRun?.id ?? null); }
     catch (error) { setState("error"); setMessage(error instanceof Error ? error.message : "删除失败。"); }
   }
 
   async function saveSettings() {
     setState("publishing"); setMessage("正在保存博客设置…");
-    try { let sha: string | undefined; try { sha = (await readRepoFile<SiteSettings>("data/settings.json")).sha; } catch { /* first settings file */ } await writeRepoFile("data/settings.json", siteSettings, "update: blog settings", sha); setState("success"); setMessage("设置已保存，网站正在自动更新。"); }
+    try { const previousRun = await latestRun(); let sha: string | undefined; try { sha = (await readRepoFile<SiteSettings>("data/settings.json")).sha; } catch { /* first settings file */ } await writeRepoFile("data/settings.json", siteSettings, "update: blog settings", sha); await waitForDeployment(previousRun?.id ?? null); }
     catch (error) { setState("error"); setMessage(error instanceof Error ? error.message : "设置保存失败。"); }
   }
 
@@ -362,7 +405,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
           <Field label="GitHub 用户名"><Input value={config.owner} onChange={(e) => setConfig({ ...config, owner: e.target.value })} placeholder="your-name" /></Field>
           <Field label="仓库名"><Input value={config.repo} onChange={(e) => setConfig({ ...config, repo: e.target.value })} placeholder="my-blog" /></Field>
           <Field label="分支"><Input value={config.branch} onChange={(e) => setConfig({ ...config, branch: e.target.value })} placeholder="main" /></Field>
-          <Field label="Fine-grained token"><div className="token-input"><Input type={showToken ? "text" : "password"} value={token} onChange={(e) => { setToken(e.target.value); if (state === "error") { setState("idle"); setMessage(""); } }} placeholder="粘贴 github_pat_ 开头的令牌" autoComplete="off" required aria-invalid={state === "error" && !token.trim()} /><button type="button" onClick={() => setShowToken(!showToken)} aria-label={showToken ? "隐藏令牌" : "显示令牌"}>{showToken ? <EyeOff /> : <Eye />}</button></div><small className="token-hint">灰色文字仅为提示 · <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">创建令牌</a></small></Field>
+          <Field label="Fine-grained token"><div className="token-input"><Input type={showToken ? "text" : "password"} value={token} onChange={(e) => { setToken(e.target.value.replace(/\s/g, "")); if (state === "error") { setState("idle"); setMessage(""); } }} placeholder="粘贴 github_pat_ 开头的令牌" autoComplete="off" spellCheck={false} required aria-invalid={state === "error" && !token.trim()} /><button type="button" onClick={() => setShowToken(!showToken)} aria-label={showToken ? "隐藏令牌" : "显示令牌"}>{showToken ? <EyeOff /> : <Eye />}</button></div><small className="token-hint">仅保存在当前页面 · <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">创建令牌</a> · 权限选择 Contents: Read and write</small></Field>
         </div>
         {message && <output className={`status-message ${state}`}>{message}</output>}
         <Button className="connect-button" onClick={() => void connect()} disabled={state === "connecting"}>{state === "connecting" ? <LoaderCircle className="spin" /> : <GitBranch />} {state === "connecting" ? "正在验证…" : "连接并开始写作"}</Button>
@@ -379,7 +422,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
         {message && <output className={`status-message workspace-status ${state}`}>{state === "success" ? <CheckCircle2 /> : state === "deploying" || state === "publishing" || state === "uploading" ? <LoaderCircle className="spin" /> : null}<span>{message}</span></output>}
 
         {panel === "posts" && <div className="manage-panel">
-          <div className="post-tools"><label><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题或摘要" /></label><label><ListFilter /><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label></div>
+          <div className="post-tools"><label><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题或摘要" /></label><label><ListFilter /><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label><ArrowUpRight /><select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as typeof sortOrder)}><option value="newest">最新发布</option><option value="oldest">最早发布</option><option value="title">按标题</option></select></label><button className="sync-button" onClick={() => void refreshPosts()} disabled={state === "connecting"}><RefreshCw className={state === "connecting" ? "spin" : ""} />同步</button></div>
           <div className="admin-post-list">{visiblePosts.length ? visiblePosts.map((post) => <article key={post.id}><div className={`admin-post-cover ${coverTone(post.category)}`}>{post.coverImage ? <img src={post.coverImage} alt="" /> : post.category.slice(0, 1)}</div><div><small>{post.category} · {post.date}</small><h2>{post.title}</h2><p>{post.excerpt}</p></div><div className="post-row-actions"><button onClick={() => editPost(post)}><Pencil />编辑</button><button className="danger" onClick={() => void deletePost(post)}><Trash2 />删除</button></div></article>) : <div className="list-empty">没有符合条件的文章</div>}</div>
         </div>}
 
@@ -389,8 +432,9 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
             <section className="write-section">
               <div className="form-heading"><div><PenLine /><span><b>{editingId ? "编辑现有文章" : "新文章"}</b><small>{draftStatus} · Ctrl/⌘ + S 保存</small></span></div>{editingId && <span className="secure-chip">编辑模式</span>}</div>
               <Field label="标题"><Input className="title-input" value={draft.title} onChange={(e) => updateDraft({ title: e.target.value })} placeholder="给这篇文章一个好标题" /></Field>
+              <Field label="文章链接"><Input value={draft.slug} onChange={(e) => updateDraft({ slug: slugifyInput(e.target.value) })} placeholder={slugify(draft.title) || "article-url"} /><small className="token-hint">留空时根据标题自动生成，只能使用文字、数字和连字符</small></Field>
               <div className="meta-grid"><Field label="分类"><Input value={draft.category} onChange={(e) => updateDraft({ category: e.target.value })} /></Field><Field label="作者"><Input value={draft.author} onChange={(e) => updateDraft({ author: e.target.value })} /></Field></div>
-              <Field label="封面图片"><div className="cover-field"><Input value={draft.coverImage} onChange={(e) => updateDraft({ coverImage: e.target.value })} placeholder="图片 URL，或直接上传" /><Button type="button" variant="outline" onClick={() => imageRef.current?.click()} disabled={state === "uploading"}><ImagePlus />上传</Button><input ref={imageRef} className="file-input" type="file" accept="image/*" onChange={(event) => void uploadImage(event)} /></div></Field>
+              <Field label="封面图片"><div className="cover-field"><Input value={draft.coverImage} onChange={(e) => updateDraft({ coverImage: e.target.value })} placeholder="图片 URL，或直接上传" /><Button type="button" variant="outline" onClick={() => imageRef.current?.click()} disabled={state === "uploading"}><ImagePlus />上传</Button><input ref={imageRef} className="file-input" type="file" accept="image/*" onChange={(event) => void uploadImage(event)} /></div>{draft.coverImage && <div className="cover-preview"><img src={draft.coverImage} alt="封面预览" /><button type="button" onClick={() => updateDraft({ coverImage: "" })}><X />移除封面</button></div>}<small className="token-hint">上传时会自动压缩大图；支持 JPG、PNG、WebP、GIF 和 SVG，最大 5MB</small></Field>
               <Field label="摘要"><Textarea value={draft.excerpt} onChange={(e) => updateDraft({ excerpt: e.target.value })} placeholder="用一两句话说明这篇文章讲什么" /></Field>
               <Field label="正文"><div className="markdown-toolbar" aria-label="Markdown 工具栏"><button type="button" onClick={() => insertMarkdown("## ", "", "小标题")}><Heading2 />标题</button><button type="button" onClick={() => insertMarkdown("**", "**")}><Bold />粗体</button><button type="button" onClick={() => insertMarkdown("> ", "", "引用内容")}><Quote />引用</button><button type="button" onClick={() => insertMarkdown("- ", "", "列表项目")}><List />列表</button><button type="button" onClick={() => insertMarkdown("[", "](https://)", "链接文字")}><Link2 />链接</button></div><Textarea ref={editorRef} className="content-editor" value={draft.content} onChange={(e) => updateDraft({ content: e.target.value })} /></Field>
             </section>
@@ -399,7 +443,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
           <aside className={`preview-panel ${mobilePreview ? "mobile-visible" : ""}`}><p className="eyebrow">LIVE PREVIEW</p><div className={`mini-cover ${coverTone(preview.category)} ${preview.coverImage ? "has-image" : ""}`}>{preview.coverImage && <img src={preview.coverImage} alt="" />}<span>{preview.category}</span></div><small>{preview.category} · {preview.author}</small><h2>{preview.title}</h2><p>{preview.excerpt}</p><div className="mini-body"><Markdown content={preview.content} /></div></aside>
         </div>}
 
-        {panel === "settings" && <form className="settings-panel" onSubmit={(event) => { event.preventDefault(); void saveSettings(); }}><div className="settings-intro"><Settings /><div><h2>站点基础信息</h2><p>保存后会提交到仓库，并随下一次 GitHub Pages 构建更新。</p></div></div><div className="settings-grid"><Field label="博客名称"><Input value={siteSettings.name} onChange={(e) => setSiteSettings({ ...siteSettings, name: e.target.value })} /></Field><Field label="默认作者"><Input value={siteSettings.author} onChange={(e) => setSiteSettings({ ...siteSettings, author: e.target.value })} /></Field><Field label="首页主标题"><Input value={siteSettings.tagline} onChange={(e) => setSiteSettings({ ...siteSettings, tagline: e.target.value })} /></Field><Field label="GitHub 链接"><Input type="url" value={siteSettings.github} onChange={(e) => setSiteSettings({ ...siteSettings, github: e.target.value })} /></Field></div><Field label="博客简介"><Textarea value={siteSettings.description} onChange={(e) => setSiteSettings({ ...siteSettings, description: e.target.value })} /></Field><Field label="关于区域标题"><Input value={siteSettings.footer} onChange={(e) => setSiteSettings({ ...siteSettings, footer: e.target.value })} /></Field><div className="settings-submit"><Button type="submit" size="lg" disabled={state === "publishing"}><Save />保存博客设置</Button></div></form>}
+        {panel === "settings" && <form className="settings-panel" onSubmit={(event) => { event.preventDefault(); void saveSettings(); }}><div className="settings-intro"><Settings /><div><h2>站点基础信息</h2><p>保存后会提交到仓库，并随下一次 GitHub Pages 构建更新。</p></div></div><div className="settings-grid"><Field label="博客名称"><Input value={siteSettings.name} onChange={(e) => setSiteSettings({ ...siteSettings, name: e.target.value })} /></Field><Field label="默认作者"><Input value={siteSettings.author} onChange={(e) => setSiteSettings({ ...siteSettings, author: e.target.value })} /></Field><Field label="首页主标题"><Input value={siteSettings.tagline} onChange={(e) => setSiteSettings({ ...siteSettings, tagline: e.target.value })} /></Field><Field label="默认文章分类"><Input value={siteSettings.defaultCategory} onChange={(e) => setSiteSettings({ ...siteSettings, defaultCategory: e.target.value })} /></Field><Field label="首页文章数量"><Input type="number" min={1} max={30} value={siteSettings.postsPerPage} onChange={(e) => setSiteSettings({ ...siteSettings, postsPerPage: Math.max(1, Math.min(30, Number(e.target.value) || 9)) })} /></Field><Field label="GitHub 链接"><Input type="url" value={siteSettings.github} onChange={(e) => setSiteSettings({ ...siteSettings, github: e.target.value })} /></Field></div><Field label="博客简介"><Textarea value={siteSettings.description} onChange={(e) => setSiteSettings({ ...siteSettings, description: e.target.value })} /></Field><Field label="关于区域标题"><Input value={siteSettings.footer} onChange={(e) => setSiteSettings({ ...siteSettings, footer: e.target.value })} /></Field><Field label="页脚版权文字"><Input value={siteSettings.copyright} onChange={(e) => setSiteSettings({ ...siteSettings, copyright: e.target.value })} /></Field><div className="settings-submit"><Button type="submit" size="lg" disabled={state === "publishing" || state === "deploying"}><Save />保存博客设置</Button></div></form>}
       </section>
     </main>}
   </div>;
@@ -412,6 +456,10 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function slugify(value: string) {
   const latin = value.toLowerCase().trim().replace(/[^a-z0-9\u4e00-\u9fff]+/g, "-").replace(/^-|-$/g, "");
   return latin || `post-${new Date().toISOString().slice(0, 10)}`;
+}
+
+function slugifyInput(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff-]+/g, "-").replace(/-{2,}/g, "-").replace(/^-/, "");
 }
 
 function decodeBase64(value: string) {
@@ -436,6 +484,17 @@ function fileToBase64(file: File) {
   });
 }
 
+async function prepareImage(file: File): Promise<{ content: string; extension: string }> {
+  const originalExtension = file.name.split(".").pop()?.replace(/[^a-z0-9]/gi, "").toLowerCase() || "jpg";
+  if (file.type === "image/gif" || file.type === "image/svg+xml" || file.size < 700 * 1024) return { content: await fileToBase64(file), extension: originalExtension };
+  const bitmap = await createImageBitmap(file); const scale = Math.min(1, 1800 / bitmap.width);
+  const canvas = document.createElement("canvas"); canvas.width = Math.round(bitmap.width * scale); canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", .84));
+  if (!blob) return { content: await fileToBase64(file), extension: originalExtension };
+  return { content: await fileToBase64(new File([blob], "cover.webp", { type: "image/webp" })), extension: "webp" };
+}
+
 function Footer({ settings }: { settings?: SiteSettings }) {
-  return <footer className="footer site-width"><span>© 2026 {settings?.name ?? "NekoPress"}</span><span>Published with GitHub Pages</span></footer>;
+  return <footer className="footer site-width"><span>{settings?.copyright ?? `© 2026 ${settings?.name ?? "NekoPress"}`}</span>{settings?.github ? <a href={settings.github} target="_blank" rel="noreferrer">GitHub</a> : <span>Published with GitHub Pages</span>}</footer>;
 }
