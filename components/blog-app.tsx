@@ -2,7 +2,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, BarChart3, Bold, CheckCircle2, Clock3, Code2, Copy, Download, Eye, EyeOff, FilePlus2, FileText, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, LoaderCircle, LockKeyhole, LogOut, Maximize2, Menu, Minus, Minimize2, Music2, Pencil, PenLine, Quote, Redo2, RefreshCw, RotateCcw, Save, Search, Send, Settings, Sparkles, Trash2, Undo2, Upload, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, BarChart3, Bold, CheckCircle2, Clock3, Code2, Copy, Download, Eye, EyeOff, FilePlus2, FileText, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, LoaderCircle, LockKeyhole, LogOut, Maximize2, Menu, Minus, Minimize2, Music2, Pause, Pencil, PenLine, Play, Quote, Redo2, RefreshCw, RotateCcw, Save, Search, Send, Settings, Sparkles, Trash2, Undo2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -174,6 +174,30 @@ function Article({ post, posts, settings }: { post: Post; posts: Post[]; setting
   </>;
 }
 
+function AudioPlayer({ src, title }: { src: string; title: string }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [speed, setSpeed] = useState(1);
+  const formatTime = (seconds: number) => Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${Math.floor(seconds % 60).toString().padStart(2, "0")}` : "0:00";
+  const toggle = async () => {
+    const audio = audioRef.current; if (!audio) return;
+    if (audio.paused) { try { await audio.play(); } catch { setPlaying(false); } }
+    else audio.pause();
+  };
+  const changeSpeed = () => {
+    const next = speed === 1 ? 1.25 : speed === 1.25 ? 1.5 : speed === 1.5 ? 2 : 1;
+    setSpeed(next); if (audioRef.current) audioRef.current.playbackRate = next;
+  };
+  return <figure className={`audio-player ${playing ? "is-playing" : ""}`}>
+    <button className="audio-play" type="button" onClick={() => void toggle()} aria-label={playing ? "暂停音频" : "播放音频"}>{playing ? <Pause /> : <Play />}</button>
+    <div className="audio-info"><span className="audio-art"><Music2 /><i/><i/><i/></span><span><b>{title}</b><small>文章配套音频 · {duration ? formatTime(duration) : "正在读取时长"}</small></span></div>
+    <div className="audio-controls"><input aria-label="音频播放进度" type="range" min="0" max={duration || 0} step="0.1" value={current} style={{ "--audio-progress": `${duration ? current / duration * 100 : 0}%` } as React.CSSProperties} onChange={(event) => { const value = Number(event.target.value); setCurrent(value); if (audioRef.current) audioRef.current.currentTime = value; }} /><span>{formatTime(current)} / {formatTime(duration)}</span><button type="button" onClick={changeSpeed} aria-label="切换播放速度">{speed}×</button></div>
+    <audio ref={audioRef} preload="metadata" src={src} onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)} onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); setCurrent(0); }}>您的浏览器不支持音频播放。</audio>
+  </figure>;
+}
+
 function Markdown({ content }: { content: string }) {
   const blocks: ReactNode[] = [];
   const lines = content.split("\n");
@@ -195,7 +219,7 @@ function Markdown({ content }: { content: string }) {
     else if (line.startsWith("## ")) blocks.push(<h2 id={headingId(line.slice(3))} key={index}>{inlineMarkdown(line.slice(3))}</h2>);
     else if (line.startsWith("> ")) blocks.push(<blockquote key={index}>{inlineMarkdown(line.slice(2))}</blockquote>);
     else if (line.trim() === "---") blocks.push(<hr key={index} />);
-    else if (/^@\[audio\]\([^)]+\)$/.test(line)) { const audio = line.match(/^@\[audio\]\(([^)]+)\)$/)!; blocks.push(<figure className="audio-player" key={index}><Music2 /><div><b>文章音频</b><small>点击播放或暂停</small></div><audio controls preload="metadata" src={audio[1]}>您的浏览器不支持音频播放。</audio></figure>); }
+    else if (/^@\[audio(?::[^\]]+)?\]\([^)]+\)$/.test(line)) { const audio = line.match(/^@\[audio(?::([^\]]+))?\]\(([^)]+)\)$/)!; blocks.push(<AudioPlayer key={index} title={audio[1]?.trim() || "文章音频"} src={audio[2]} />); }
     else if (/^!\[[^\]]*\]\([^)]+\)$/.test(line)) { const image = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)!; blocks.push(<figure key={index}><img src={image[2]} alt={image[1]} /><figcaption>{image[1]}</figcaption></figure>); }
     else blocks.push(<p key={index}>{inlineMarkdown(line)}</p>);
   });
@@ -418,7 +442,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     const limit = kind === "audio" ? 15 * 1024 * 1024 : 5 * 1024 * 1024;
     if (file.size > limit) { setState("error"); setMessage(kind === "audio" ? "音频文件不能超过 15MB。" : "图片不能超过 5MB。"); return; }
     setState("uploading"); setMessage(`正在上传${kind === "audio" ? "音频" : "图片"}…`);
-    try { const prepared = kind === "image" ? await prepareImage(file) : { content: await fileToBase64(file), extension: file.name.split(".").pop()?.toLowerCase() || "mp3" }; const name = `${slugify(draft.title || "article")}-${kind}-${Date.now()}.${prepared.extension}`; const folder = kind === "audio" ? "audio" : "images"; const body = JSON.stringify({ message: `upload: ${name}`, content: prepared.content, branch: config.branch.trim() }); const response = await fetch(contentsApi(`public/${folder}/${name}`), { method: "PUT", headers: { ...headers(), "Content-Type": "application/json" }, body }); if (!response.ok) throw new Error("媒体文件上传失败，请检查仓库写入权限。"); const markdown = kind === "audio" ? `\n\n@[audio](./audio/${name})\n` : `\n\n![${file.name}](./images/${name})\n`; updateDraft({ content: `${draft.content.trimEnd()}${markdown}` }); setState("success"); setMessage(`${kind === "audio" ? "音频" : "图片"}已上传并插入正文。`); }
+    try { const prepared = kind === "image" ? await prepareImage(file) : { content: await fileToBase64(file), extension: file.name.split(".").pop()?.toLowerCase() || "mp3" }; const name = `${slugify(draft.title || "article")}-${kind}-${Date.now()}.${prepared.extension}`; const folder = kind === "audio" ? "audio" : "images"; const body = JSON.stringify({ message: `upload: ${name}`, content: prepared.content, branch: config.branch.trim() }); const response = await fetch(contentsApi(`public/${folder}/${name}`), { method: "PUT", headers: { ...headers(), "Content-Type": "application/json" }, body }); if (!response.ok) throw new Error("媒体文件上传失败，请检查仓库写入权限。"); const audioTitle = file.name.replace(/\.[^.]+$/, "").replaceAll("]", "").trim() || "文章音频"; const markdown = kind === "audio" ? `\n\n@[audio:${audioTitle}](./audio/${name})\n` : `\n\n![${file.name}](./images/${name})\n`; updateDraft({ content: `${draft.content.trimEnd()}${markdown}` }); setState("success"); setMessage(`${kind === "audio" ? "音频" : "图片"}已上传并插入正文。`); }
     catch (error) { setState("error"); setMessage(error instanceof Error ? error.message : "媒体上传失败。"); }
   }
 
