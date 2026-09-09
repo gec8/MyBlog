@@ -2,7 +2,7 @@
 "use client";
 
 import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, ArrowUpRight, Bold, CheckCircle2, Clock3, Eye, EyeOff, FilePlus2, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, LoaderCircle, LogOut, Menu, Pencil, PenLine, Quote, RefreshCw, Save, Search, Send, Settings, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, Bold, CheckCircle2, Clock3, Eye, EyeOff, FilePlus2, FileText, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, LoaderCircle, LockKeyhole, LogOut, Maximize2, Menu, Minimize2, Pencil, PenLine, Quote, RefreshCw, Save, Search, Send, Settings, Sparkles, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -216,6 +216,8 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   const [message, setMessage] = useState("");
   const [draftStatus, setDraftStatus] = useState("草稿会自动保存在本机");
   const [dirty, setDirty] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [deploymentStage, setDeploymentStage] = useState<0 | 1 | 2 | 3>(0);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
 
@@ -251,6 +253,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   }), [draft]);
 
   const categories = useMemo(() => ["全部", ...Array.from(new Set(remotePosts.map((post) => post.category)))], [remotePosts]);
+  const totalWords = useMemo(() => remotePosts.reduce((total, post) => total + post.content.replace(/\s/g, "").length, 0), [remotePosts]);
   const visiblePosts = useMemo(() => remotePosts.filter((post) => (categoryFilter === "全部" || post.category === categoryFilter) && `${post.title} ${post.excerpt}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => sortOrder === "title" ? a.title.localeCompare(b.title, "zh-CN") : sortOrder === "oldest" ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)), [remotePosts, categoryFilter, query, sortOrder]);
 
   const headers = () => ({ Accept: "application/vnd.github+json", Authorization: `Bearer ${token.trim()}`, "X-GitHub-Api-Version": "2022-11-28" });
@@ -277,13 +280,13 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   }
 
   async function waitForDeployment(previousId: number | null) {
-    setState("deploying"); setMessage("内容已提交，正在等待 GitHub Pages 开始更新…");
+    setState("deploying"); setDeploymentStage(1); setMessage("内容已提交，正在等待 GitHub Pages 开始更新…");
     for (let attempt = 0; attempt < 24; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 5000));
       const run = await latestRun();
       if (!run || (previousId && run.id === previousId)) continue;
-      if (run.status !== "completed") { setMessage("GitHub Pages 正在构建和部署，请稍候…"); continue; }
-      if (run.conclusion === "success") { setState("success"); setMessage("网站更新完成，最新内容已经上线。"); return; }
+      if (run.status !== "completed") { setDeploymentStage(2); setMessage("GitHub Pages 正在构建和部署，请稍候…"); continue; }
+      if (run.conclusion === "success") { setDeploymentStage(3); setState("success"); setMessage("网站更新完成，最新内容已经上线。"); return; }
       setState("error"); setMessage("内容已提交，但网站构建失败。请前往 GitHub Actions 查看日志。"); return;
     }
     setState("success"); setMessage("内容已提交；部署仍在后台进行，可以稍后刷新前台查看。");
@@ -364,7 +367,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     if (!config.owner || !config.repo || !token || !draft.title.trim() || !draft.content.trim()) {
       setState("error"); setMessage("请补全仓库信息、令牌、标题与正文。"); return;
     }
-    setState("publishing"); setMessage("");
+    setState("publishing"); setDeploymentStage(0); setMessage("");
     try {
       const previousRun = await latestRun();
       const current = await readRepoFile<Post[]>("data/posts.json");
@@ -381,13 +384,13 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
 
   async function deletePost(post: Post) {
     if (!window.confirm(`确定删除《${post.title}》吗？此操作会保留在 GitHub 历史记录中。`)) return;
-    setState("publishing"); setMessage("正在删除文章…");
+    setState("publishing"); setDeploymentStage(0); setMessage("正在删除文章…");
     try { const previousRun = await latestRun(); const current = await readRepoFile<Post[]>("data/posts.json"); const next = current.data.filter((item) => item.id !== post.id); await writeRepoFile("data/posts.json", next, `delete: ${post.title}`, current.sha); setRemotePosts(next); if (editingId === post.id) newPost(); await waitForDeployment(previousRun?.id ?? null); }
     catch (error) { setState("error"); setMessage(error instanceof Error ? error.message : "删除失败。"); }
   }
 
   async function saveSettings() {
-    setState("publishing"); setMessage("正在保存博客设置…");
+    setState("publishing"); setDeploymentStage(0); setMessage("正在保存博客设置…");
     try { const previousRun = await latestRun(); let sha: string | undefined; try { sha = (await readRepoFile<SiteSettings>("data/settings.json")).sha; } catch { /* first settings file */ } await writeRepoFile("data/settings.json", siteSettings, "update: blog settings", sha); await waitForDeployment(previousRun?.id ?? null); }
     catch (error) { setState("error"); setMessage(error instanceof Error ? error.message : "设置保存失败。"); }
   }
@@ -410,40 +413,45 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
         {message && <output className={`status-message ${state}`}>{message}</output>}
         <Button className="connect-button" onClick={() => void connect()} disabled={state === "connecting"}>{state === "connecting" ? <LoaderCircle className="spin" /> : <GitBranch />} {state === "connecting" ? "正在验证…" : "连接并开始写作"}</Button>
       </section>
-    </main> : <main className="admin-workspace">
+    </main> : <main className={`admin-workspace ${focusMode ? "focus-mode" : ""}`}>
       <aside className="admin-sidebar">
         <div className="workspace-id"><span>{siteSettings.name.slice(0, 1)}</span><div><b>{siteSettings.name}</b><small>{config.owner}/{config.repo}</small></div></div>
         <nav><button className={panel === "posts" ? "active" : ""} onClick={() => setPanel("posts")}><List />文章管理 <span>{remotePosts.length}</span></button><button className={panel === "editor" ? "active" : ""} onClick={() => setPanel("editor")}><PenLine />写作编辑</button><button className={panel === "settings" ? "active" : ""} onClick={() => setPanel("settings")}><Settings />博客设置</button></nav>
-        <div className="sidebar-bottom"><button onClick={() => { setToken(""); setConnected(false); }}><KeyRound />断开并清除令牌</button><small>令牌仅保存在当前页面内存</small></div>
+        <div className="sidebar-bottom"><div className="connection-card"><span><i/>仓库已连接</span><b>{config.branch}</b><p><LockKeyhole />令牌仅存在当前页面，刷新后自动清除。</p></div><button onClick={() => { setToken(""); setConnected(false); }}><KeyRound />断开并清除令牌</button></div>
       </aside>
 
       <section className="workspace-main">
-        <header className="workspace-heading"><div><p>{panel === "posts" ? "CONTENT" : panel === "settings" ? "SETTINGS" : "EDITOR"}</p><h1>{panel === "posts" ? "文章管理" : panel === "settings" ? "博客设置" : editingId ? "编辑文章" : "写一篇新文章"}</h1></div>{panel !== "settings" && <Button onClick={newPost}><FilePlus2 />新文章</Button>}</header>
+        <header className="workspace-heading"><div><p>{panel === "posts" ? "CONTENT" : panel === "settings" ? "SETTINGS" : "EDITOR"}</p><h1>{panel === "posts" ? "文章管理" : panel === "settings" ? "博客设置" : editingId ? "编辑文章" : "写一篇新文章"}</h1></div><div className="workspace-actions">{panel === "editor" && <Button className="focus-toggle" variant="outline" onClick={() => setFocusMode(!focusMode)}>{focusMode ? <Minimize2 /> : <Maximize2 />}{focusMode ? "退出专注" : "专注模式"}</Button>}{panel !== "settings" && <Button onClick={newPost}><FilePlus2 />新文章</Button>}</div></header>
         {message && <output className={`status-message workspace-status ${state}`}>{state === "success" ? <CheckCircle2 /> : state === "deploying" || state === "publishing" || state === "uploading" ? <LoaderCircle className="spin" /> : null}<span>{message}</span></output>}
+        {deploymentStage > 0 && <div className="deployment-progress"><div className={deploymentStage >= 1 ? "done" : ""}><span>{deploymentStage > 1 ? <CheckCircle2 /> : "1"}</span><b>提交内容</b></div><i/><div className={deploymentStage >= 2 ? "done" : ""}><span>{deploymentStage > 2 ? <CheckCircle2 /> : "2"}</span><b>构建网站</b></div><i/><div className={deploymentStage >= 3 ? "done" : ""}><span>{deploymentStage >= 3 ? <CheckCircle2 /> : "3"}</span><b>正式上线</b></div></div>}
 
-        {panel === "posts" && <div className="manage-panel">
+        {panel === "posts" && <><div className="content-stats"><article><FileText /><span><b>{remotePosts.length}</b><small>已发布文章</small></span></article><article><BarChart3 /><span><b>{categories.length - 1}</b><small>内容分类</small></span></article><article><Clock3 /><span><b>{Math.max(1, Math.ceil(totalWords / 500))}</b><small>分钟总阅读量</small></span></article></div><div className="manage-panel">
           <div className="post-tools"><label><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题或摘要" /></label><label><ListFilter /><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label><ArrowUpRight /><select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as typeof sortOrder)}><option value="newest">最新发布</option><option value="oldest">最早发布</option><option value="title">按标题</option></select></label><button className="sync-button" onClick={() => void refreshPosts()} disabled={state === "connecting"}><RefreshCw className={state === "connecting" ? "spin" : ""} />同步</button></div>
-          <div className="admin-post-list">{visiblePosts.length ? visiblePosts.map((post) => <article key={post.id}><div className={`admin-post-cover ${coverTone(post.category)}`}>{post.coverImage ? <img src={post.coverImage} alt="" /> : post.category.slice(0, 1)}</div><div><small>{post.category} · {post.date}</small><h2>{post.title}</h2><p>{post.excerpt}</p></div><div className="post-row-actions"><button onClick={() => editPost(post)}><Pencil />编辑</button><button className="danger" onClick={() => void deletePost(post)}><Trash2 />删除</button></div></article>) : <div className="list-empty">没有符合条件的文章</div>}</div>
-        </div>}
+          <div className="admin-post-list">{visiblePosts.length ? visiblePosts.map((post) => <article key={post.id}><div className={`admin-post-cover ${coverTone(post.category)}`}>{post.coverImage ? <img src={post.coverImage} alt="" /> : post.category.slice(0, 1)}</div><div><small>{post.category} · {post.date} · {post.readMinutes} 分钟</small><h2>{post.title}</h2><p>{post.excerpt}</p></div><div className="post-row-actions"><button onClick={() => go(`post/${post.slug}`)}><Eye />预览</button><button onClick={() => editPost(post)}><Pencil />编辑</button><button className="danger" onClick={() => void deletePost(post)}><Trash2 />删除</button></div></article>) : <div className="list-empty"><FileText /><p>没有符合条件的文章</p><Button onClick={newPost}><FilePlus2 />写一篇新文章</Button></div>}</div>
+        </div></>}
 
         {panel === "editor" && <div className="editor-workspace">
           <div className="mobile-editor-tabs"><button type="button" className={!mobilePreview ? "active" : ""} onClick={() => setMobilePreview(false)}><PenLine />编辑</button><button type="button" className={mobilePreview ? "active" : ""} onClick={() => setMobilePreview(true)}><Eye />预览</button></div>
           <form className={`editor-panel ${mobilePreview ? "mobile-hidden" : ""}`} onSubmit={(event) => { event.preventDefault(); void publish(); }}>
             <section className="write-section">
               <div className="form-heading"><div><PenLine /><span><b>{editingId ? "编辑现有文章" : "新文章"}</b><small>{draftStatus} · Ctrl/⌘ + S 保存</small></span></div>{editingId && <span className="secure-chip">编辑模式</span>}</div>
-              <Field label="标题"><Input className="title-input" value={draft.title} onChange={(e) => updateDraft({ title: e.target.value })} placeholder="给这篇文章一个好标题" /></Field>
-              <Field label="文章链接"><Input value={draft.slug} onChange={(e) => updateDraft({ slug: slugifyInput(e.target.value) })} placeholder={slugify(draft.title) || "article-url"} /><small className="token-hint">留空时根据标题自动生成，只能使用文字、数字和连字符</small></Field>
-              <div className="meta-grid"><Field label="分类"><Input value={draft.category} onChange={(e) => updateDraft({ category: e.target.value })} /></Field><Field label="作者"><Input value={draft.author} onChange={(e) => updateDraft({ author: e.target.value })} /></Field></div>
+              <div className="writer-title"><Input className="title-input" value={draft.title} onChange={(e) => updateDraft({ title: e.target.value })} placeholder="给这篇文章一个好标题" /><p>{draft.title.length} 字 · {editingId ? "正在编辑已发布文章" : "新文章"}</p></div>
+              <div className="editor-meta-strip"><Field label="分类"><Input value={draft.category} onChange={(e) => updateDraft({ category: e.target.value })} /></Field><Field label="作者"><Input value={draft.author} onChange={(e) => updateDraft({ author: e.target.value })} /></Field><Field label="文章链接"><Input value={draft.slug} onChange={(e) => updateDraft({ slug: slugifyInput(e.target.value) })} placeholder={slugify(draft.title) || "article-url"} /></Field></div>
               <Field label="封面图片"><div className="cover-field"><Input value={draft.coverImage} onChange={(e) => updateDraft({ coverImage: e.target.value })} placeholder="图片 URL，或直接上传" /><Button type="button" variant="outline" onClick={() => imageRef.current?.click()} disabled={state === "uploading"}><ImagePlus />上传</Button><input ref={imageRef} className="file-input" type="file" accept="image/*" onChange={(event) => void uploadImage(event)} /></div>{draft.coverImage && <div className="cover-preview"><img src={draft.coverImage} alt="封面预览" /><button type="button" onClick={() => updateDraft({ coverImage: "" })}><X />移除封面</button></div>}<small className="token-hint">上传时会自动压缩大图；支持 JPG、PNG、WebP、GIF 和 SVG，最大 5MB</small></Field>
               <Field label="摘要"><Textarea value={draft.excerpt} onChange={(e) => updateDraft({ excerpt: e.target.value })} placeholder="用一两句话说明这篇文章讲什么" /></Field>
               <Field label="正文"><div className="markdown-toolbar" aria-label="Markdown 工具栏"><button type="button" onClick={() => insertMarkdown("## ", "", "小标题")}><Heading2 />标题</button><button type="button" onClick={() => insertMarkdown("**", "**")}><Bold />粗体</button><button type="button" onClick={() => insertMarkdown("> ", "", "引用内容")}><Quote />引用</button><button type="button" onClick={() => insertMarkdown("- ", "", "列表项目")}><List />列表</button><button type="button" onClick={() => insertMarkdown("[", "](https://)", "链接文字")}><Link2 />链接</button></div><Textarea ref={editorRef} className="content-editor" value={draft.content} onChange={(e) => updateDraft({ content: e.target.value })} /></Field>
             </section>
             <div className="publish-row"><p><Eye /> {draft.content.length} 字 · 约 {preview.readMinutes} 分钟阅读</p><div><Button type="button" variant="outline" onClick={saveDraft}><Save />保存草稿</Button><Button type="submit" size="lg" disabled={state === "publishing" || state === "deploying"}>{state === "publishing" ? <LoaderCircle className="spin" /> : <Send />} {state === "publishing" ? "正在提交…" : editingId ? "更新文章" : "发布文章"}</Button></div></div>
           </form>
-          <aside className={`preview-panel ${mobilePreview ? "mobile-visible" : ""}`}><p className="eyebrow">LIVE PREVIEW</p><div className={`mini-cover ${coverTone(preview.category)} ${preview.coverImage ? "has-image" : ""}`}>{preview.coverImage && <img src={preview.coverImage} alt="" />}<span>{preview.category}</span></div><small>{preview.category} · {preview.author}</small><h2>{preview.title}</h2><p>{preview.excerpt}</p><div className="mini-body"><Markdown content={preview.content} /></div></aside>
+          <aside className={`preview-panel article-preview ${mobilePreview ? "mobile-visible" : ""}`}><div className="preview-browser"><i/><i/><i/><span>文章预览</span></div><header><small>{preview.category} · {formatDate(preview.date)}</small><h2>{preview.title}</h2><p>{preview.excerpt}</p><div><b>{preview.author.slice(0,1)}</b><span>{preview.author}<small>{preview.readMinutes} 分钟阅读</small></span></div></header><div className={`mini-cover ${coverTone(preview.category)} ${preview.coverImage ? "has-image" : ""}`}>{preview.coverImage && <img src={preview.coverImage} alt="" />}<span>{preview.category}</span></div><div className="mini-body"><Markdown content={preview.content} /></div></aside>
         </div>}
 
-        {panel === "settings" && <form className="settings-panel" onSubmit={(event) => { event.preventDefault(); void saveSettings(); }}><div className="settings-intro"><Settings /><div><h2>站点基础信息</h2><p>保存后会提交到仓库，并随下一次 GitHub Pages 构建更新。</p></div></div><div className="settings-grid"><Field label="博客名称"><Input value={siteSettings.name} onChange={(e) => setSiteSettings({ ...siteSettings, name: e.target.value })} /></Field><Field label="默认作者"><Input value={siteSettings.author} onChange={(e) => setSiteSettings({ ...siteSettings, author: e.target.value })} /></Field><Field label="首页主标题"><Input value={siteSettings.tagline} onChange={(e) => setSiteSettings({ ...siteSettings, tagline: e.target.value })} /></Field><Field label="默认文章分类"><Input value={siteSettings.defaultCategory} onChange={(e) => setSiteSettings({ ...siteSettings, defaultCategory: e.target.value })} /></Field><Field label="首页文章数量"><Input type="number" min={1} max={30} value={siteSettings.postsPerPage} onChange={(e) => setSiteSettings({ ...siteSettings, postsPerPage: Math.max(1, Math.min(30, Number(e.target.value) || 9)) })} /></Field><Field label="GitHub 链接"><Input type="url" value={siteSettings.github} onChange={(e) => setSiteSettings({ ...siteSettings, github: e.target.value })} /></Field></div><Field label="博客简介"><Textarea value={siteSettings.description} onChange={(e) => setSiteSettings({ ...siteSettings, description: e.target.value })} /></Field><Field label="关于区域标题"><Input value={siteSettings.footer} onChange={(e) => setSiteSettings({ ...siteSettings, footer: e.target.value })} /></Field><Field label="页脚版权文字"><Input value={siteSettings.copyright} onChange={(e) => setSiteSettings({ ...siteSettings, copyright: e.target.value })} /></Field><div className="settings-submit"><Button type="submit" size="lg" disabled={state === "publishing" || state === "deploying"}><Save />保存博客设置</Button></div></form>}
+        {panel === "settings" && <form className="settings-groups" onSubmit={(event) => { event.preventDefault(); void saveSettings(); }}>
+          <section className="settings-panel"><div className="settings-intro"><FileText /><div><h2>基础信息</h2><p>决定站点名称、默认署名与内容基调。</p></div></div><div className="settings-grid"><Field label="博客名称"><Input value={siteSettings.name} onChange={(e) => setSiteSettings({ ...siteSettings, name: e.target.value })} /></Field><Field label="默认作者"><Input value={siteSettings.author} onChange={(e) => setSiteSettings({ ...siteSettings, author: e.target.value })} /></Field><Field label="默认文章分类"><Input value={siteSettings.defaultCategory} onChange={(e) => setSiteSettings({ ...siteSettings, defaultCategory: e.target.value })} /></Field></div><Field label="博客简介"><Textarea value={siteSettings.description} onChange={(e) => setSiteSettings({ ...siteSettings, description: e.target.value })} /></Field></section>
+          <section className="settings-panel"><div className="settings-intro"><Sparkles /><div><h2>首页展示</h2><p>控制访客进入网站后首先看到的内容。</p></div></div><Field label="首页主标题"><Input value={siteSettings.tagline} onChange={(e) => setSiteSettings({ ...siteSettings, tagline: e.target.value })} /></Field><div className="settings-grid"><Field label="首页文章数量"><Input type="number" min={1} max={30} value={siteSettings.postsPerPage} onChange={(e) => setSiteSettings({ ...siteSettings, postsPerPage: Math.max(1, Math.min(30, Number(e.target.value) || 9)) })} /></Field><Field label="关于区域标题"><Input value={siteSettings.footer} onChange={(e) => setSiteSettings({ ...siteSettings, footer: e.target.value })} /></Field></div></section>
+          <section className="settings-panel"><div className="settings-intro"><GitBranch /><div><h2>链接与页脚</h2><p>补充作者主页和全站版权信息。</p></div></div><div className="settings-grid"><Field label="GitHub 链接"><Input type="url" value={siteSettings.github} onChange={(e) => setSiteSettings({ ...siteSettings, github: e.target.value })} /></Field><Field label="页脚版权文字"><Input value={siteSettings.copyright} onChange={(e) => setSiteSettings({ ...siteSettings, copyright: e.target.value })} /></Field></div></section>
+          <div className="settings-submit"><span>保存后将自动触发网站更新</span><Button type="submit" size="lg" disabled={state === "publishing" || state === "deploying"}><Save />保存全部设置</Button></div>
+        </form>}
       </section>
     </main>}
   </div>;
