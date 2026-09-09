@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 const outputDir = resolve("dist/client");
+const packageInfo = JSON.parse(readFileSync(resolve("package.json"), "utf8"));
 rmSync(resolve("dist"), { recursive: true, force: true });
 
 const cli = resolve("node_modules/vinext/dist/cli.js");
@@ -70,4 +71,5 @@ if (existsSync(cssDir)) {
 if (result.status && process.platform === "win32") {
   console.warn("Static export verified; ignoring Vinext's Windows libuv shutdown warning.");
 }
+writeFileSync(resolve(outputDir, "build-info.json"), JSON.stringify({ version: packageInfo.version, commit: process.env.GITHUB_SHA ?? "local", builtAt: new Date().toISOString() }, null, 2));
 process.exit(0);
