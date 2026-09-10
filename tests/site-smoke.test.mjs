@@ -37,6 +37,7 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /draft-filters/);
   assert.match(source, /loadRepoMedia/);
   assert.match(source, /uploadMediaLibrary/);
+  assert.match(source, /mediaFileName/);
   assert.match(source, /deleteRepoMedia/);
   assert.match(source, /deleteSelectedMedia/);
   assert.match(source, /selectedMedia/);

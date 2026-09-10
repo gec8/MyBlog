@@ -1,0 +1,41 @@
+.media-library > header > span > button,
+.media-library .list-empty > button {
+  min-width: 72px !important;
+  height: 40px !important;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 12px !important;
+  padding: 0 13px !important;
+  font-size: .65rem !important;
+  transition: border-color .16s, background-color .16s, color .16s, transform .16s;
+}
+
+.media-library > header > span > button:hover,
+.media-library .list-empty > button:hover {
+  border-color: #aaa2a7;
+  background: #f8f5f6;
+}
+
+.media-library > header > span > button:active,
+.media-library .list-empty > button:active {
+  transform: translateY(1px);
+}
+
+.media-library > header > span > button:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.media-library > header > span > button:first-of-type:hover {
+  border-color: #3a383f;
+  background: #3a383f;
+  color: #fff;
+}
+
+@media (max-width: 620px) {
+  .media-library > header > span > button {
+    min-width: 68px !important;
+    height: 38px !important;
+    padding-inline: 11px !important;
+  }
+}
