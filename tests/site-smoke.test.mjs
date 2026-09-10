@@ -76,6 +76,9 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /function openSavedDraft/);
   assert.match(source, /找不到要更新的原文章/);
   assert.match(source, /String\(post\.id\) === String\(editingId\)/);
+  assert.match(source, /slugManuallyEdited/);
+  assert.match(source, /function articleSlugInput/);
+  assert.match(source, /粘贴完整文章网址自动识别/);
 });
 
 test("音频语法与播放器状态完整", () => {

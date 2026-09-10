@@ -1273,6 +1273,7 @@ function Admin({
   const [draft, setDraft] = useState(emptyDraft);
   const [remotePosts, setRemotePosts] = useState(posts);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [panel, setPanel] = useState<
     'dashboard' | 'posts' | 'editor' | 'media' | 'drafts' | 'settings'
   >('dashboard');
@@ -1396,10 +1397,16 @@ function Admin({
         });
       }
       const savedDraft = localStorage.getItem('nekopress-draft');
-      if (savedDraft)
-        deferUpdate(() =>
-          setDraft({ ...emptyDraft, ...JSON.parse(savedDraft) }),
-        );
+      if (savedDraft) {
+        const restoredDraft = {
+          ...emptyDraft,
+          ...(JSON.parse(savedDraft) as Partial<Draft>),
+        };
+        deferUpdate(() => {
+          setDraft(restoredDraft);
+          setSlugManuallyEdited(Boolean(restoredDraft.slug));
+        });
+      }
       const allDrafts = localStorage.getItem('nekopress-drafts');
       if (allDrafts) deferUpdate(() => setSavedDrafts(JSON.parse(allDrafts)));
       const allVersions = localStorage.getItem('nekopress-versions');
@@ -2265,6 +2272,7 @@ function Admin({
     });
     setActiveDraftId(`draft-${Date.now()}`);
     setEditingId(null);
+    setSlugManuallyEdited(false);
     setDirty(false);
     setMessage('');
     setPanel('editor');
@@ -2288,6 +2296,7 @@ function Admin({
     });
     setActiveDraftId(`post-${post.id}`);
     setEditingId(post.id);
+    setSlugManuallyEdited(true);
     setDirty(false);
     setMessage('');
     setPanel('editor');
@@ -2297,6 +2306,7 @@ function Admin({
     setDraft({ ...emptyDraft, ...item.draft });
     setActiveDraftId(item.id);
     setEditingId(item.id.startsWith('post-') ? item.id.slice(5) : null);
+    setSlugManuallyEdited(Boolean(item.draft.slug));
     setDirty(false);
     setMessage('');
     setPanel('editor');
@@ -3843,11 +3853,11 @@ function Admin({
                         value={draft.title}
                         onChange={(e) => {
                           const title = e.target.value;
-                          const autoSlug =
-                            !draft.slug || draft.slug === slugify(draft.title);
                           updateDraft({
                             title,
-                            ...(autoSlug ? { slug: slugify(title) } : {}),
+                            ...(!editingId && !slugManuallyEdited
+                              ? { slug: title.trim() ? slugify(title) : '' }
+                              : {}),
                           });
                         }}
                         placeholder="给这篇文章一个好标题"
@@ -3878,15 +3888,22 @@ function Admin({
                         <Input
                           className={slugDuplicate ? 'input-error' : ''}
                           value={draft.slug}
-                          onChange={(e) =>
-                            updateDraft({ slug: slugifyInput(e.target.value) })
-                          }
+                          onChange={(e) => {
+                            const slug = articleSlugInput(e.target.value);
+                            setSlugManuallyEdited(Boolean(slug));
+                            updateDraft({ slug });
+                          }}
                           placeholder={slugify(draft.title) || 'article-url'}
                           aria-invalid={slugDuplicate}
                         />
                         {slugDuplicate && (
                           <small className="field-error">
                             该链接已被其他文章使用
+                          </small>
+                        )}
+                        {!slugDuplicate && (
+                          <small className="token-hint">
+                            新文章会根据标题自动填写；也可以粘贴完整文章网址自动识别。
                           </small>
                         )}
                       </Field>
@@ -5297,6 +5314,19 @@ function slugifyInput(value: string) {
     .replace(/[^a-z0-9\u4e00-\u9fff-]+/g, '-')
     .replace(/-{2,}/g, '-')
     .replace(/^-/, '');
+}
+
+function articleSlugInput(value: string) {
+  const input = value.trim();
+  if (!input) return '';
+  const routeMatch = input.match(/#\/post\/([^?#]+)/i);
+  const pathMatch = input.match(/\/post\/([^/?#]+)/i);
+  const candidate = routeMatch?.[1] ?? pathMatch?.[1] ?? input;
+  try {
+    return slugifyInput(decodeURIComponent(candidate));
+  } catch {
+    return slugifyInput(candidate);
+  }
 }
 
 function mediaFileName(originalName: string, extension: string) {
