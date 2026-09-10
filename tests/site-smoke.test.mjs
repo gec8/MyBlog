@@ -7,8 +7,8 @@ const css = readFileSync("app/globals.css", "utf8");
 const draftUtils = readFileSync("components/admin/draft-utils.ts", "utf8");
 
 test("首页与文章路由保持可用", () => {
-  assert.match(source, /view: "home"/);
-  assert.match(source, /view: "post"/);
+  assert.match(source, /view: ['"]home['"]/);
+  assert.match(source, /view: ['"]post['"]/);
   assert.match(source, /function Home\(/);
   assert.match(source, /function Article\(/);
 });
@@ -24,10 +24,10 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /markdown-editor/);
   assert.match(source, /editor-status/);
   assert.match(source, /toolbar-menu/);
-  assert.match(source, /querySelector<HTMLDetailsElement>\("\.insert-menu"\)/);
+  assert.match(source, /querySelector<HTMLDetailsElement>\(['"]\.insert-menu['"]\)/);
   assert.match(source, /nekopress-versions/);
-  assert.match(source, /sessionStorage\.getItem\("nekopress-token"\)/);
-  assert.match(source, /sessionStorage\.removeItem\("nekopress-token"\)/);
+  assert.match(source, /sessionStorage\.getItem\(['"]nekopress-token['"]\)/);
+  assert.match(source, /sessionStorage\.removeItem\(['"]nekopress-token['"]\)/);
   assert.match(source, /deleteDraft/);
   assert.match(source, /undoDeleteDraft/);
   assert.match(source, /duplicateDraft/);
@@ -40,8 +40,8 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /mediaFileName/);
   assert.match(source, /mediaTypeOf/);
   assert.match(source, /githubError/);
-  assert.match(source, /cache: "no-store"/);
-  assert.doesNotMatch(source, /"Cache-Control": "no-cache"/);
+  assert.match(source, /cache: ['"]no-store['"]/);
+  assert.doesNotMatch(source, /['"]Cache-Control['"]: ['"]no-cache['"]/);
   assert.match(source, /已上传并加入列表/);
   assert.match(source, /searchPexels/);
   assert.match(source, /usePexelsPhoto/);
@@ -68,13 +68,18 @@ test("后台编辑和发布入口存在", () => {
   assert.match(draftUtils, /filterAndSortDrafts/);
   assert.match(source, /meaningfulDraft/);
   assert.match(source, /登录会话已失效/);
+  assert.match(source, /onPostsChange/);
+  assert.match(source, /function applyPosts/);
+  assert.match(source, /function openSavedDraft/);
+  assert.match(source, /找不到要更新的原文章/);
+  assert.match(source, /String\(post\.id\) === String\(editingId\)/);
 });
 
 test("音频语法与播放器状态完整", () => {
   assert.match(source, /@\\\[audio/);
   assert.match(source, /function AudioPlayer\(/);
   assert.match(source, /mediaState.*loading.*ready.*error/);
-  assert.match(source, /<audio ref=/);
+  assert.match(source, /<audio\s+ref=/);
   assert.match(source, /task-item/);
   assert.match(source, /<del key=/);
   assert.match(source, /<ol key=/);
