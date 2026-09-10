@@ -30,6 +30,8 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /deleteDraft/);
   assert.match(source, /undoDeleteDraft/);
   assert.match(source, /duplicateDraft/);
+  assert.match(source, /batchDeleteDrafts/);
+  assert.match(source, /selectedDraftIds/);
 });
 
 test("音频语法与播放器状态完整", () => {
