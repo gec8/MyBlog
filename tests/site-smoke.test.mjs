@@ -18,6 +18,8 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /content-editor/);
   assert.match(source, /find-replace/);
   assert.match(source, /editorOutline/);
+  assert.match(source, /normalizeMarkdown/);
+  assert.match(source, /const heading = prefix\.match/);
   assert.match(source, /nekopress-versions/);
   assert.match(source, /sessionStorage\.getItem\("nekopress-token"\)/);
   assert.match(source, /sessionStorage\.removeItem\("nekopress-token"\)/);
