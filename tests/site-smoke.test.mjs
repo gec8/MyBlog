@@ -4,6 +4,7 @@ import test from "node:test";
 
 const source = readFileSync("components/blog-app.tsx", "utf8");
 const css = readFileSync("app/globals.css", "utf8");
+const pexelsCss = readFileSync("app/pexels-picker.css", "utf8");
 const draftUtils = readFileSync("components/admin/draft-utils.ts", "utf8");
 
 test("首页与文章路由保持可用", () => {
@@ -96,6 +97,9 @@ test("移动端限制横向溢出", () => {
   assert.match(css, /max-width:100%/);
   assert.match(css, /overflow-x:auto/);
   assert.match(css, /@media\(max-width:560px\)/);
+  assert.match(pexelsCss, /height: min\(760px,calc\(100dvh - 36px\)\)/);
+  assert.match(pexelsCss, /flex: 1 1 auto/);
+  assert.match(pexelsCss, /-webkit-overflow-scrolling: touch/);
 });
 
 test("构建产物包含首页与健康信息", () => {

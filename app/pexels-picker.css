@@ -25,7 +25,7 @@
 .local-key-field > input { min-width: 0; }
 .local-key-field > button { flex: 0 0 auto; }
 .pexels-backdrop { z-index: 150; padding: 18px; }
-.pexels-picker { display: grid; width: min(980px,100%); max-height: calc(100vh - 36px); overflow: hidden; border: 1px solid rgba(255,255,255,.6); border-radius: 24px; background: #fff; box-shadow: 0 28px 90px rgba(20,15,18,.28); }
+.pexels-picker { display: flex; width: min(980px,100%); height: min(760px,calc(100dvh - 36px)); max-height: calc(100vh - 36px); overflow: hidden; flex-direction: column; border: 1px solid rgba(255,255,255,.6); border-radius: 24px; background: #fff; box-shadow: 0 28px 90px rgba(20,15,18,.28); }
 .pexels-picker > header { display: flex; align-items: center; padding: 20px 22px 15px; }
 .pexels-picker > header small { color: var(--coral); font-size: .56rem; font-weight: 900; letter-spacing: .14em; }
 .pexels-picker > header h2 { margin: 3px 0 0; font-family: Georgia,"Noto Serif SC",serif; font-size: 1.3rem; }
@@ -37,7 +37,7 @@
 .cover-picker-tabs button.active { background: #fff; color: var(--ink); box-shadow: 0 2px 8px rgba(30,20,25,.06); }
 .cover-picker-tabs svg { width: 14px; }
 .is-media > form,.is-media > .pexels-key,.is-media > .pexels-loading,.is-media > .pexels-grid,.is-media > .pexels-empty { display: none; }
-.cover-media-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 9px; min-height: 280px; overflow-y: auto; padding: 0 22px 18px; }
+.cover-media-grid { display: grid; min-height: 0; flex: 1 1 auto; grid-template-columns: repeat(3,minmax(0,1fr)); align-content: start; gap: 9px; overflow-y: auto; overscroll-behavior: contain; padding: 0 22px 18px; scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }
 .cover-media-grid article { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: #faf8f8; }
 .cover-media-grid article img { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }
 .cover-media-grid article > div { display: flex; align-items: center; gap: 8px; padding: 8px; }
@@ -57,17 +57,17 @@
 .pexels-key > svg { width: 18px; color: #9a6b21; }
 .pexels-key b,.pexels-key small { display: block; }
 .pexels-key b { font-size: .7rem; }.pexels-key small { margin-top: 3px; color: #9a8770; font-size: .58rem; }
-.pexels-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 9px; overflow-y: auto; padding: 0 22px 18px; }
+.pexels-grid { display: grid; min-height: 0; flex: 1 1 auto; grid-template-columns: repeat(3,minmax(0,1fr)); align-content: start; gap: 9px; overflow-y: auto; overscroll-behavior: contain; padding: 0 22px 18px; scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }
 .pexels-grid article { position: relative; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: #f7f4f4; }
 .pexels-grid article > img { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }
 .pexels-grid article > div { display: flex; align-items: center; gap: 8px; padding: 8px; }
 .pexels-grid article a { min-width: 0; flex: 1; overflow: hidden; color: #817a80; font-size: .57rem; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
 .pexels-grid article button { flex: 0 0 auto; border: 0; border-radius: 8px; background: #fff; padding: 7px 9px; color: #3f3a40; cursor: pointer; font-size: .59rem; font-weight: 800; }
-.pexels-loading,.pexels-empty { display: grid; min-height: 310px; place-content: center; justify-items: center; color: #aaa3a8; font-size: .7rem; }
+.pexels-loading,.pexels-empty { display: grid; min-height: 0; flex: 1 1 auto; place-content: center; justify-items: center; color: #aaa3a8; font-size: .7rem; }
 .pexels-loading svg,.pexels-empty svg { width: 25px; }
-.pexels-picker > footer { display: flex; min-height: 54px; align-items: center; border-top: 1px solid var(--line); padding: 9px 22px; }
+.pexels-picker > footer { display: flex; min-height: 54px; flex: 0 0 auto; align-items: center; border-top: 1px solid var(--line); background:#fff; padding: 9px 22px; }
 .pexels-picker > footer > a { color: #8b848a; font-size: .6rem; font-weight: 750; text-decoration: none; }
 .pexels-picker > footer > span { display: flex; gap: 6px; margin-left: auto; }
 .pexels-picker > footer button { min-height: 34px; }
-@media(max-width:760px){.pexels-picker{max-height:calc(100vh - 24px);border-radius:20px}.pexels-backdrop{align-items:end;padding:12px}.pexels-grid,.cover-media-grid{grid-template-columns:repeat(2,minmax(0,1fr));padding-inline:14px}.pexels-picker>header{padding:16px 14px 13px}.cover-picker-tabs{margin-inline:14px}.pexels-picker>form{grid-template-columns:130px minmax(0,1fr) auto auto;padding-inline:14px}.pexels-key{grid-template-columns:32px minmax(0,1fr);margin-inline:14px}.pexels-key>input{grid-column:1/-1}.card-credit{top:170px}.cover-adjust{grid-template-columns:auto 1fr 1fr}}
+@media(max-width:760px){.pexels-picker{height:calc(100dvh - 24px);max-height:calc(100vh - 24px);border-radius:20px}.pexels-backdrop{align-items:end;padding:12px}.pexels-grid,.cover-media-grid{grid-template-columns:repeat(2,minmax(0,1fr));padding-inline:14px}.pexels-picker>header{padding:16px 14px 13px}.cover-picker-tabs{margin-inline:14px}.pexels-picker>form{grid-template-columns:130px minmax(0,1fr) auto auto;padding-inline:14px}.pexels-key{grid-template-columns:32px minmax(0,1fr);margin-inline:14px}.pexels-key>input{grid-column:1/-1}.card-credit{top:170px}.cover-adjust{grid-template-columns:auto 1fr 1fr}}
 @media(max-width:520px){.cover-source-tabs{display:grid;grid-template-columns:repeat(3,1fr)}.cover-source-tabs>button{justify-content:center;padding-inline:6px}.cover-field>input:first-child{flex-basis:100%}.cover-field>button{flex:1;min-width:0;font-size:.6rem}.cover-preview{height:auto;aspect-ratio:16/9}.cover-adjust{grid-template-columns:1fr 1fr;gap:10px}.cover-adjust>div{grid-column:1/-1}.focus-grid{grid-template-columns:repeat(9,1fr)}.focus-grid button{width:100%;height:26px}.local-key-field{align-items:stretch;flex-direction:column}.pexels-picker>form{grid-template-columns:1fr 1fr}.pexels-picker>form>select,.pexels-picker>form label{grid-column:1/-1}.pexels-grid,.cover-media-grid{grid-template-columns:1fr}.pexels-grid article>img,.cover-media-grid article>img{aspect-ratio:16/8.5}.pexels-picker>footer{padding-inline:14px}.pexels-picker>footer>a{max-width:105px}.post-card.featured .card-credit{bottom:auto;top:190px}}
