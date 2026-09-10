@@ -41,6 +41,7 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /mediaTypeOf/);
   assert.match(source, /githubError/);
   assert.match(source, /cache: "no-store"/);
+  assert.doesNotMatch(source, /"Cache-Control": "no-cache"/);
   assert.match(source, /已上传并加入列表/);
   assert.match(source, /deleteRepoMedia/);
   assert.match(source, /deleteSelectedMedia/);
