@@ -31,7 +31,10 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /undoDeleteDraft/);
   assert.match(source, /duplicateDraft/);
   assert.match(source, /batchDeleteDrafts/);
+  assert.match(source, /confirmBatchDelete/);
   assert.match(source, /selectedDraftIds/);
+  assert.match(source, /meaningfulDraft/);
+  assert.match(source, /登录会话已失效/);
 });
 
 test("音频语法与播放器状态完整", () => {
@@ -41,6 +44,8 @@ test("音频语法与播放器状态完整", () => {
   assert.match(source, /<audio ref=/);
   assert.match(source, /task-item/);
   assert.match(source, /<del key=/);
+  assert.match(source, /<ol key=/);
+  assert.match(source, /<table key=/);
 });
 
 test("移动端限制横向溢出", () => {

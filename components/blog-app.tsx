@@ -228,21 +228,27 @@ function Markdown({ content, onImageOpen }: { content: string; onImageOpen?: (sr
   const blocks: ReactNode[] = [];
   const lines = content.split("\n");
   let list: string[] = [];
+  let orderedList = false;
   let code: string[] = [];
+  const tableRows = new Set<number>();
   let inCode = false;
   const flushList = () => {
     if (!list.length) return;
-    blocks.push(<ul key={`list-${blocks.length}`}>{list.map((item, i) => { const task = item.match(/^\[([ xX])\]\s*(.*)$/); return <li className={task ? "task-item" : undefined} key={i}>{task && <input type="checkbox" checked={task[1].toLowerCase() === "x"} readOnly/>}{inlineMarkdown(task ? task[2] : item)}</li>; })}</ul>);
+    const items = list.map((item, i) => { const task = item.match(/^\[([ xX])\]\s*(.*)$/); return <li className={task ? "task-item" : undefined} key={i}>{task && <input type="checkbox" checked={task[1].toLowerCase() === "x"} readOnly/>}{inlineMarkdown(task ? task[2] : item)}</li>; });
+    blocks.push(orderedList ? <ol key={`list-${blocks.length}`}>{items}</ol> : <ul key={`list-${blocks.length}`}>{items}</ul>);
     list = [];
+    orderedList = false;
   };
   lines.forEach((line, index) => {
+    if (tableRows.has(index)) return;
     if (line.startsWith("```")) { if (inCode) { blocks.push(<pre key={`code-${index}`}><code>{code.join("\n")}</code></pre>); code = []; } inCode = !inCode; return; }
     if (inCode) { code.push(line); return; }
-    if (line.startsWith("- ")) { list.push(line.slice(2)); return; }
-    if (/^\d+\.\s/.test(line)) { list.push(line.replace(/^\d+\.\s/, "")); return; }
+    if (line.startsWith("- ")) { if (orderedList) flushList(); list.push(line.slice(2)); return; }
+    if (/^\d+\.\s/.test(line)) { if (list.length && !orderedList) flushList(); orderedList = true; list.push(line.replace(/^\d+\.\s/, "")); return; }
     flushList();
     if (!line.trim()) return;
-    if (line.startsWith("### ")) blocks.push(<h3 key={index}>{inlineMarkdown(line.slice(4))}</h3>);
+    if (/^\|.+\|$/.test(line) && /^\|?\s*:?-+/.test(lines[index + 1] ?? "")) { const rows: string[][] = []; tableRows.add(index + 1); for (let rowIndex = index + 2; rowIndex < lines.length && /^\|.+\|$/.test(lines[rowIndex]); rowIndex += 1) { tableRows.add(rowIndex); rows.push(lines[rowIndex].slice(1, -1).split("|").map((cell) => cell.trim())); } const headers = line.slice(1, -1).split("|").map((cell) => cell.trim()); blocks.push(<table key={index}><thead><tr>{headers.map((cell, cellIndex) => <th key={cellIndex}>{inlineMarkdown(cell)}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{inlineMarkdown(cell)}</td>)}</tr>)}</tbody></table>); }
+    else if (line.startsWith("### ")) blocks.push(<h3 key={index}>{inlineMarkdown(line.slice(4))}</h3>);
     else if (line.startsWith("## ")) blocks.push(<h2 id={headingId(line.slice(3))} key={index}>{inlineMarkdown(line.slice(3))}</h2>);
     else if (line.startsWith("> ")) blocks.push(<blockquote key={index}>{inlineMarkdown(line.slice(2))}</blockquote>);
     else if (line.trim() === "---") blocks.push(<hr key={index} />);
@@ -315,6 +321,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   const [deletedDraft, setDeletedDraft] = useState<{ item: SavedDraft; index: number } | null>(null);
   const [managingDrafts, setManagingDrafts] = useState(false);
   const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([]);
+  const [batchDeletePending, setBatchDeletePending] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const inlineImageRef = useRef<HTMLInputElement>(null);
@@ -328,7 +335,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     try {
       const saved = localStorage.getItem("nekopress-repo");
       const sessionToken = sessionStorage.getItem("nekopress-token") ?? "";
-      if (saved) { const savedConfig = JSON.parse(saved) as RepoConfig; deferUpdate(() => { setConfig(savedConfig); if (sessionToken.startsWith("github_pat_")) { setToken(sessionToken); setConnected(true); } }); }
+      if (saved) { const savedConfig = JSON.parse(saved) as RepoConfig; deferUpdate(() => { setConfig(savedConfig); if (sessionToken.startsWith("github_pat_")) { setToken(sessionToken); setConnected(true); void fetch(`https://api.github.com/repos/${savedConfig.owner}/${savedConfig.repo}`, { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${sessionToken}` } }).then((response) => { if (!response.ok) { sessionStorage.removeItem("nekopress-token"); setToken(""); setConnected(false); setState("error"); setMessage("登录会话已失效，请重新连接仓库。"); } }).catch(() => { /* keep offline session for retry */ }); } }); }
       const savedDraft = localStorage.getItem("nekopress-draft");
       if (savedDraft) deferUpdate(() => setDraft({ ...emptyDraft, ...JSON.parse(savedDraft) }));
       const allDrafts = localStorage.getItem("nekopress-drafts");
@@ -341,6 +348,8 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   useEffect(() => {
     const timer = window.setTimeout(() => {
       localStorage.setItem("nekopress-draft", JSON.stringify(draft));
+      const meaningfulDraft = Boolean(draft.title.trim() || draft.excerpt.trim() || draft.coverImage.trim() || draft.content.trim() !== emptyDraft.content.trim());
+      if (!meaningfulDraft) { setDraftStatus("空白草稿不会加入草稿箱"); return; }
       const entry: SavedDraft = { id: activeDraftId, savedAt: new Date().toISOString(), draft };
       setSavedDrafts((current) => { const next = [entry, ...current.filter((item) => item.id !== activeDraftId)].slice(0, 20); localStorage.setItem("nekopress-drafts", JSON.stringify(next)); return next; });
       setDraftStatus(`已自动保存 · ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`);
@@ -468,7 +477,8 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   function deleteDraft(item: SavedDraft) { const index = savedDrafts.findIndex((draftItem) => draftItem.id === item.id); const next = savedDrafts.filter((draftItem) => draftItem.id !== item.id); setSavedDrafts(next); localStorage.setItem("nekopress-drafts", JSON.stringify(next)); setDeletedDraft({ item, index: Math.max(0, index) }); setDraftDeleteTarget(null); if (activeDraftId === item.id) newPost(); window.setTimeout(() => setDeletedDraft((current) => current?.item.id === item.id ? null : current), 8000); }
   function undoDeleteDraft() { if (!deletedDraft) return; const next = [...savedDrafts]; next.splice(Math.min(deletedDraft.index, next.length), 0, deletedDraft.item); setSavedDrafts(next); localStorage.setItem("nekopress-drafts", JSON.stringify(next)); setDeletedDraft(null); }
   function duplicateDraft(item: SavedDraft) { const copy: SavedDraft = { id: `draft-${Date.now()}`, savedAt: new Date().toISOString(), draft: { ...item.draft, title: `${item.draft.title || "未命名草稿"}（副本）`, slug: "" } }; const next = [copy, ...savedDrafts].slice(0, 20); setSavedDrafts(next); localStorage.setItem("nekopress-drafts", JSON.stringify(next)); }
-  function batchDeleteDrafts() { if (!selectedDraftIds.length || !window.confirm(`确定删除选中的 ${selectedDraftIds.length} 份草稿吗？`)) return; const removed = savedDrafts.filter((item) => selectedDraftIds.includes(item.id)); const next = savedDrafts.filter((item) => !selectedDraftIds.includes(item.id)); setSavedDrafts(next); localStorage.setItem("nekopress-drafts", JSON.stringify(next)); if (selectedDraftIds.includes(activeDraftId)) newPost(); setDeletedDraft(removed.length === 1 ? { item: removed[0], index: savedDrafts.findIndex((item) => item.id === removed[0].id) } : null); setSelectedDraftIds([]); setManagingDrafts(false); }
+  function batchDeleteDrafts() { if (selectedDraftIds.length) setBatchDeletePending(true); }
+  function confirmBatchDelete() { const removed = savedDrafts.filter((item) => selectedDraftIds.includes(item.id)); const next = savedDrafts.filter((item) => !selectedDraftIds.includes(item.id)); setSavedDrafts(next); localStorage.setItem("nekopress-drafts", JSON.stringify(next)); if (selectedDraftIds.includes(activeDraftId)) newPost(); setDeletedDraft(removed.length === 1 ? { item: removed[0], index: savedDrafts.findIndex((item) => item.id === removed[0].id) } : null); setSelectedDraftIds([]); setManagingDrafts(false); setBatchDeletePending(false); }
 
   function updateDraft(next: Partial<Draft>) { if (typeof next.content === "string" && next.content !== draft.content) { undoStack.current.push(draft.content); if (undoStack.current.length > 80) undoStack.current.shift(); redoStack.current = []; } setDraft((current) => ({ ...current, ...next })); setDirty(true); }
 
@@ -642,6 +652,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
       </section>
     </main>}
     {showPublishCheck && <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowPublishCheck(false)}><section className="publish-check" role="dialog" aria-modal="true" aria-labelledby="publish-check-title" onMouseDown={(event) => event.stopPropagation()}><header><span><CheckCircle2 /></span><div><h2 id="publish-check-title">发布前检查</h2><p>确认文章信息完整后再提交到 GitHub。</p></div><button onClick={() => setShowPublishCheck(false)} aria-label="关闭"><X /></button></header><ul><li className={draft.title.trim() ? "ok" : ""}><span>{draft.title.trim() ? <CheckCircle2 /> : "1"}</span><div><b>文章标题</b><small>{draft.title.trim() || "尚未填写"}</small></div></li><li className={!slugDuplicate && draft.slug ? "ok" : "error"}><span>{!slugDuplicate && draft.slug ? <CheckCircle2 /> : "2"}</span><div><b>文章链接</b><small>{slugDuplicate ? "链接与已有文章重复" : draft.slug || "请填写文章链接"}</small></div></li><li className={draft.excerpt.trim().length >= 20 ? "ok" : "optional"}><span>{draft.excerpt.trim().length >= 20 ? <CheckCircle2 /> : "3"}</span><div><b>文章摘要</b><small>{draft.excerpt.trim() ? `${draft.excerpt.length} 字${draft.excerpt.length < 20 ? "，建议至少 20 字" : ""}` : "建议填写简短摘要"}</small></div></li><li className={draft.content.replace(/\s/g, "").length >= 50 ? "ok" : "optional"}><span>{draft.content.trim() ? <CheckCircle2 /> : "4"}</span><div><b>正文内容</b><small>{draft.content.replace(/\s/g, "").length} 字 · 约 ${preview.readMinutes} 分钟${draft.content.replace(/\s/g, "").length < 50 ? "，内容略短" : ""}</small></div></li><li className={`media-status ${mediaCheck === "ok" ? "ok" : mediaCheck === "error" ? "error" : ""}`}><span>{mediaCheck === "checking" ? <LoaderCircle className="spin" /> : mediaCheck === "ok" ? <CheckCircle2 /> : "5"}</span><div><b>媒体链接</b><small>{mediaCheck === "checking" ? "正在检查本地图片和音频…" : mediaCheck === "error" ? "发现无法访问的本地媒体" : draftMedia.length ? `已检查 ${draftMedia.length} 个媒体链接` : "正文未使用媒体"}</small></div></li><li className={draft.coverImage ? "ok optional" : "optional"}><span>{draft.coverImage ? <CheckCircle2 /> : <ImagePlus />}</span><div><b>文章封面</b><small>{draft.coverImage ? "已设置" : "可选，未设置时使用分类封面"}</small></div></li></ul><footer><Button variant="outline" onClick={() => setShowPublishCheck(false)}>继续编辑</Button><Button disabled={!draft.title.trim() || !draft.content.trim() || !draft.slug || slugDuplicate || mediaCheck !== "ok"} onClick={() => { setShowPublishCheck(false); void publish(); }}><Send />确认{editingId ? "更新" : "发布"}</Button></footer></section></div>}
+    {batchDeletePending && <div className="modal-backdrop" role="presentation" onMouseDown={() => setBatchDeletePending(false)}><section className="publish-check delete-check" role="alertdialog" aria-modal="true" aria-labelledby="batch-delete-title" onMouseDown={(event) => event.stopPropagation()}><header><span><Trash2 /></span><div><h2 id="batch-delete-title">批量删除草稿？</h2><p>即将删除选中的 {selectedDraftIds.length} 份草稿，此操作无法整批撤销。</p></div><button onClick={() => setBatchDeletePending(false)} aria-label="关闭"><X /></button></header><footer><Button variant="outline" onClick={() => setBatchDeletePending(false)}>取消</Button><Button className="danger-confirm" onClick={confirmBatchDelete}><Trash2 />删除 {selectedDraftIds.length} 份草稿</Button></footer></section></div>}
     {draftDeleteTarget && <div className="modal-backdrop" role="presentation" onMouseDown={() => setDraftDeleteTarget(null)}><section className="publish-check delete-check" role="alertdialog" aria-modal="true" aria-labelledby="draft-delete-title" onMouseDown={(event) => event.stopPropagation()}><header><span><Trash2 /></span><div><h2 id="draft-delete-title">删除这份草稿？</h2><p>《{draftDeleteTarget.draft.title || "未命名草稿"}》删除后可在 8 秒内撤销。</p></div><button onClick={() => setDraftDeleteTarget(null)} aria-label="关闭"><X /></button></header><footer><Button variant="outline" onClick={() => setDraftDeleteTarget(null)}>取消</Button><Button className="danger-confirm" onClick={() => deleteDraft(draftDeleteTarget)}><Trash2 />删除草稿</Button></footer></section></div>}
     {deletedDraft && <div className="undo-toast" role="status"><span>草稿已删除</span><button onClick={undoDeleteDraft}>撤销</button></div>}
     {deleteTarget && <div className="modal-backdrop" role="presentation" onMouseDown={() => setDeleteTarget(null)}><section className="publish-check delete-check" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" onMouseDown={(event) => event.stopPropagation()}><header><span><Trash2 /></span><div><h2 id="delete-title">删除这篇文章？</h2><p>《{deleteTarget.title}》将从网站移除。</p></div><button onClick={() => setDeleteTarget(null)} aria-label="关闭"><X /></button></header><div className="delete-note"><LockKeyhole />GitHub 会保留历史版本，必要时仍可恢复。</div><footer><Button variant="outline" onClick={() => setDeleteTarget(null)}>取消</Button><Button className="danger-confirm" onClick={() => { const post = deleteTarget; setDeleteTarget(null); void deletePost(post); }}><Trash2 />确认删除</Button></footer></section></div>}
