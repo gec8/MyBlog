@@ -35,6 +35,14 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /confirmBatchDelete/);
   assert.match(source, /selectedDraftIds/);
   assert.match(source, /draft-filters/);
+  assert.match(source, /loadRepoMedia/);
+  assert.match(source, /uploadMediaLibrary/);
+  assert.match(source, /deleteRepoMedia/);
+  assert.match(source, /deleteSelectedMedia/);
+  assert.match(source, /selectedMedia/);
+  assert.match(source, /使用中，不能删除/);
+  assert.match(css, /media-filters/);
+  assert.match(css, /media-actions/);
   assert.match(draftUtils, /filterAndSortDrafts/);
   assert.match(source, /meaningfulDraft/);
   assert.match(source, /登录会话已失效/);
