@@ -23,6 +23,7 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /markdown-editor/);
   assert.match(source, /editor-status/);
   assert.match(source, /toolbar-menu/);
+  assert.match(source, /querySelector<HTMLDetailsElement>\("\.insert-menu"\)/);
   assert.match(source, /nekopress-versions/);
   assert.match(source, /sessionStorage\.getItem\("nekopress-token"\)/);
   assert.match(source, /sessionStorage\.removeItem\("nekopress-token"\)/);

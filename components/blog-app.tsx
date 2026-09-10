@@ -345,6 +345,12 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   }, [draft, activeDraftId]);
 
   useEffect(() => {
+    if (panel !== "editor") return;
+    const frame = requestAnimationFrame(() => document.querySelector<HTMLDetailsElement>(".insert-menu")?.setAttribute("open", ""));
+    return () => cancelAnimationFrame(frame);
+  }, [panel, connected]);
+
+  useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (dirty) event.preventDefault(); };
     const shortcut = (event: KeyboardEvent) => { const command = event.ctrlKey || event.metaKey; if (command && event.key.toLowerCase() === "s") { event.preventDefault(); saveDraft(); } if (command && event.key.toLowerCase() === "b") { event.preventDefault(); insertMarkdown("**", "**", "加粗文字"); } if (command && event.key.toLowerCase() === "k") { event.preventDefault(); insertMarkdown("[", "](https://)", "链接文字"); } if (command && event.key.toLowerCase() === "f" && panel === "editor") { event.preventDefault(); setShowFind(true); } if (event.key === "Escape") { setShowPublishCheck(false); setDeleteTarget(null); setShowFind(false); } };
     window.addEventListener("beforeunload", warn); window.addEventListener("keydown", shortcut);
