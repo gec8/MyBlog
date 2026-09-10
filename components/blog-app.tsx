@@ -2,7 +2,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, BarChart3, Bold, CheckCircle2, Clock3, Code2, Copy, Download, Eye, EyeOff, FilePlus2, FileText, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, ListOrdered, LoaderCircle, LockKeyhole, LogOut, Maximize2, Menu, Minus, Minimize2, Music2, Pause, Pencil, PenLine, Play, Quote, Redo2, RefreshCw, RotateCcw, Save, Search, Send, Settings, Sparkles, Strikethrough, Table2, Trash2, Undo2, Upload, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, BarChart3, Bold, CheckCircle2, Clock3, Code2, Copy, Download, Eye, EyeOff, FilePlus2, FileText, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, ListOrdered, LoaderCircle, LockKeyhole, LogOut, Maximize2, Menu, Minus, Minimize2, Music2, Pause, Pencil, PenLine, Play, Quote, Redo2, RefreshCw, RotateCcw, Save, Search, Send, Settings, Shuffle, Sparkles, Strikethrough, Table2, Trash2, Undo2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +20,8 @@ export type Post = {
   readMinutes: number;
   content: string;
   coverImage?: string;
+  coverCredit?: string;
+  coverCreditUrl?: string;
 };
 
 export type SiteSettings = { name: string; tagline: string; description: string; author: string; defaultCategory: string; postsPerPage: number; github: string; footer: string; copyright: string };
@@ -130,7 +132,7 @@ function PostCard({ post, featured = false }: { post: Post; featured?: boolean }
         <span>{post.category}</span><b>{post.date.slice(5).replace("-", " / ")}</b>
       </div>
       <div className="post-content"><p>{featured ? "EDITOR'S PICK" : `${post.category} · ${post.author}`}</p><h3>{post.title}</h3><span>{post.excerpt}</span><footer><span><Clock3 size={14} /> {post.readMinutes} 分钟阅读</span><ArrowUpRight className="card-arrow" size={16} /></footer></div>
-    </button>
+    </button>{post.coverCredit && post.coverCreditUrl && <a className="cover-credit card-credit" href={post.coverCreditUrl} target="_blank" rel="noreferrer">图片：{post.coverCredit} / Pexels</a>}
   </article>;
 }
 
@@ -181,7 +183,7 @@ function Article({ post, posts, settings }: { post: Post; posts: Post[]; setting
         <span>{post.excerpt}</span>
         <div><b>{post.author.slice(0, 1).toUpperCase()}</b><p><strong>{post.author}</strong><span><Clock3 size={13} /> {post.readMinutes} 分钟阅读</span></p></div>
       </header>
-      <div className={`article-cover ${coverTone(post.category)} ${post.coverImage ? "has-image" : ""}`}>{post.coverImage && <img src={post.coverImage} alt="" loading="eager" decoding="async" fetchPriority="high" onError={(event) => { event.currentTarget.hidden = true; event.currentTarget.parentElement?.classList.add("image-failed"); }} />}<span>{post.category}</span><b>{post.date}</b></div>
+      <div className={`article-cover ${coverTone(post.category)} ${post.coverImage ? "has-image" : ""}`}>{post.coverImage && <img src={post.coverImage} alt="" loading="eager" decoding="async" fetchPriority="high" onError={(event) => { event.currentTarget.hidden = true; event.currentTarget.parentElement?.classList.add("image-failed"); }} />}<span>{post.category}</span><b>{post.date}</b>{post.coverCredit && post.coverCreditUrl && <a className="cover-credit" href={post.coverCreditUrl} target="_blank" rel="noreferrer">图片：{post.coverCredit} / Pexels</a>}</div>
       <article className={`article-body reading-size-${fontSize}`}><Markdown content={post.content} onImageOpen={(src) => setLightbox(Math.max(0, bodyImages.findIndex((item) => item.src === src)))} /></article>
       <div className="article-tools"><div className="font-controls" aria-label="正文字号"><span>字号</span><button className={fontSize === "small" ? "active" : ""} onClick={() => setFontSize("small")}>小</button><button className={fontSize === "normal" ? "active" : ""} onClick={() => setFontSize("normal")}>中</button><button className={fontSize === "large" ? "active" : ""} onClick={() => setFontSize("large")}>大</button></div><button onClick={() => void copyLink()}><Copy />{copied ? "已复制" : "复制文章链接"}</button><button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}><ArrowUp />返回顶部</button></div>
       <nav className="article-neighbors" aria-label="相邻文章">
@@ -282,10 +284,11 @@ function NotFound() {
 }
 
 type RepoConfig = { owner: string; repo: string; branch: string };
-type Draft = { title: string; slug: string; excerpt: string; category: string; author: string; coverImage: string; content: string };
+type Draft = { title: string; slug: string; excerpt: string; category: string; author: string; coverImage: string; coverCredit: string; coverCreditUrl: string; content: string };
 type SavedDraft = { id: string; savedAt: string; draft: Draft };
 type RepoMedia = { name: string; path: string; sha: string; url: string; size: number; type: "image" | "audio" };
-const emptyDraft: Draft = { title: "", slug: "", excerpt: "", category: "随笔", author: "Neko", coverImage: "", content: "## 从这里开始\n\n写下你的正文。" };
+type PexelsPhoto = { id: number; width: number; height: number; photographer: string; photographer_url: string; url: string; alt: string; src: { medium: string; large: string; large2x: string } };
+const emptyDraft: Draft = { title: "", slug: "", excerpt: "", category: "随笔", author: "Neko", coverImage: "", coverCredit: "", coverCreditUrl: "", content: "## 从这里开始\n\n写下你的正文。" };
 
 function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: SiteSettings }) {
   const [config, setConfig] = useState<RepoConfig>({ owner: "", repo: "", branch: "main" });
@@ -331,6 +334,12 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   const [mediaFilter, setMediaFilter] = useState<"all" | "image" | "audio" | "unused">("all");
   const [selectedMedia, setSelectedMedia] = useState<string[]>([]);
   const [managingMedia, setManagingMedia] = useState(false);
+  const [pexelsKey, setPexelsKey] = useState("");
+  const [showPexels, setShowPexels] = useState(false);
+  const [pexelsQuery, setPexelsQuery] = useState("自然");
+  const [pexelsPhotos, setPexelsPhotos] = useState<PexelsPhoto[]>([]);
+  const [pexelsLoading, setPexelsLoading] = useState(false);
+  const [pexelsPage, setPexelsPage] = useState(1);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const inlineImageRef = useRef<HTMLInputElement>(null);
@@ -352,6 +361,8 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
       if (allDrafts) deferUpdate(() => setSavedDrafts(JSON.parse(allDrafts)));
       const allVersions = localStorage.getItem("nekopress-versions");
       if (allVersions) deferUpdate(() => setVersions(JSON.parse(allVersions)));
+      const savedPexelsKey = localStorage.getItem("nekopress-pexels-key");
+      if (savedPexelsKey) deferUpdate(() => setPexelsKey(savedPexelsKey));
     } catch { /* ignore malformed local preference */ }
   }, []);
 
@@ -377,7 +388,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (dirty) event.preventDefault(); };
-    const shortcut = (event: KeyboardEvent) => { const command = event.ctrlKey || event.metaKey; if (command && event.key.toLowerCase() === "s") { event.preventDefault(); saveDraft(); } if (command && event.key.toLowerCase() === "b") { event.preventDefault(); insertMarkdown("**", "**", "加粗文字"); } if (command && event.key.toLowerCase() === "k") { event.preventDefault(); insertMarkdown("[", "](https://)", "链接文字"); } if (command && event.key.toLowerCase() === "f" && panel === "editor") { event.preventDefault(); setShowFind(true); } if (event.key === "Escape") { setShowPublishCheck(false); setDeleteTarget(null); setShowFind(false); } };
+    const shortcut = (event: KeyboardEvent) => { const command = event.ctrlKey || event.metaKey; if (command && event.key.toLowerCase() === "s") { event.preventDefault(); saveDraft(); } if (command && event.key.toLowerCase() === "b") { event.preventDefault(); insertMarkdown("**", "**", "加粗文字"); } if (command && event.key.toLowerCase() === "k") { event.preventDefault(); insertMarkdown("[", "](https://)", "链接文字"); } if (command && event.key.toLowerCase() === "f" && panel === "editor") { event.preventDefault(); setShowFind(true); } if (event.key === "Escape") { setShowPublishCheck(false); setShowPexels(false); setDeleteTarget(null); setShowFind(false); } };
     window.addEventListener("beforeunload", warn); window.addEventListener("keydown", shortcut);
     return () => { window.removeEventListener("beforeunload", warn); window.removeEventListener("keydown", shortcut); };
   }, [dirty, draft, panel]);
@@ -385,7 +396,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   const preview = useMemo<Post>(() => ({
     id: "preview", slug: draft.slug.trim() || slugify(draft.title) || "preview", title: draft.title || "文章标题",
     excerpt: draft.excerpt || "一句清楚的摘要会帮助读者决定是否继续阅读。", category: draft.category,
-    author: draft.author || "Neko", coverImage: draft.coverImage.trim() || undefined, date: new Date().toISOString().slice(0, 10),
+    author: draft.author || "Neko", coverImage: draft.coverImage.trim() || undefined, coverCredit: draft.coverCredit.trim() || undefined, coverCreditUrl: draft.coverCreditUrl.trim() || undefined, date: new Date().toISOString().slice(0, 10),
     readMinutes: Math.max(1, Math.ceil(draft.content.length / 500)), content: draft.content,
   }), [draft]);
 
@@ -510,7 +521,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
 
   function newPost() { setDraft({ ...emptyDraft, author: siteSettings.author || "Neko", category: siteSettings.defaultCategory || "随笔" }); setActiveDraftId(`draft-${Date.now()}`); setEditingId(null); setDirty(false); setMessage(""); setPanel("editor"); }
 
-  function editPost(post: Post) { setDraft({ title: post.title, slug: post.slug, excerpt: post.excerpt, category: post.category, author: post.author, coverImage: post.coverImage ?? "", content: post.content }); setActiveDraftId(`post-${post.id}`); setEditingId(post.id); setDirty(false); setMessage(""); setPanel("editor"); }
+  function editPost(post: Post) { setDraft({ title: post.title, slug: post.slug, excerpt: post.excerpt, category: post.category, author: post.author, coverImage: post.coverImage ?? "", coverCredit: post.coverCredit ?? "", coverCreditUrl: post.coverCreditUrl ?? "", content: post.content }); setActiveDraftId(`post-${post.id}`); setEditingId(post.id); setDirty(false); setMessage(""); setPanel("editor"); }
 
   async function refreshPosts() {
     setState("connecting"); setMessage("正在读取仓库中的最新文章…");
@@ -548,9 +559,48 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
       const body = JSON.stringify({ message: `upload: ${name}`, content: prepared.content, branch: config.branch.trim() });
       const response = await fetch(contentsApi(`public/images/${name}`), { method: "PUT", headers: { ...headers(), "Content-Type": "application/json" }, body });
       if (!response.ok) throw new Error("图片上传失败，请检查 Contents 写入权限。");
-      updateDraft({ coverImage: `./images/${name}` }); setState("success"); setMessage("图片已上传并设为封面。");
+      updateDraft({ coverImage: `./images/${name}`, coverCredit: "", coverCreditUrl: "" }); setState("success"); setMessage("图片已上传并设为封面。");
     } catch (error) { setState("error"); setMessage(error instanceof Error ? error.message : "图片上传失败。"); }
     finally { event.target.value = ""; }
+  }
+
+  function savePexelsKey(value: string) { setPexelsKey(value.trim()); if (value.trim()) localStorage.setItem("nekopress-pexels-key", value.trim()); else localStorage.removeItem("nekopress-pexels-key"); }
+
+  async function searchPexels(page = 1, random = false) {
+    if (!pexelsKey.trim()) { setShowPexels(true); setPexelsPhotos([]); setMessage("请先填写 Pexels API Key。"); return; }
+    setPexelsLoading(true); setShowPexels(true);
+    try {
+      const targetPage = random ? Math.floor(Math.random() * 30) + 1 : page;
+      const endpoint = pexelsQuery.trim() ? `https://api.pexels.com/v1/search?query=${encodeURIComponent(pexelsQuery.trim())}&orientation=landscape&size=large&per_page=12&page=${targetPage}` : `https://api.pexels.com/v1/curated?per_page=12&page=${targetPage}`;
+      const response = await fetch(endpoint, { headers: { Authorization: pexelsKey.trim() }, cache: "no-store" });
+      if (!response.ok) throw new Error(response.status === 401 ? "Pexels API Key 无效。" : response.status === 429 ? "Pexels 请求次数已达到限制，请稍后再试。" : "Pexels 图片加载失败。");
+      const result = await response.json() as { photos?: PexelsPhoto[] };
+      const photos = (result.photos ?? []).filter((photo) => photo.width > photo.height && photo.src?.large);
+      setPexelsPhotos(random && photos.length ? [photos[Math.floor(Math.random() * photos.length)]] : photos); setPexelsPage(targetPage);
+      if (!photos.length) setMessage("没有找到合适的横向图片，请换一个关键词。");
+    } catch (error) { setMessage(error instanceof TypeError ? "浏览器无法连接 Pexels，请检查网络或隐私拦截设置。" : error instanceof Error ? error.message : "网络图片加载失败。"); }
+    finally { setPexelsLoading(false); }
+  }
+
+  async function usePexelsPhoto(photo: PexelsPhoto) {
+    if (!connected || !token.trim()) { setState("error"); setMessage("请先连接 GitHub 仓库，再保存网络图片。"); return; }
+    setPexelsLoading(true); setState("uploading"); setMessage("正在下载、压缩并保存封面…");
+    try {
+      const imageResponse = await fetch(photo.src.large2x || photo.src.large, { cache: "no-store" });
+      if (!imageResponse.ok) throw new Error("原图下载失败，请选择其他图片。");
+      const blob = await imageResponse.blob();
+      if (!blob.type.startsWith("image/")) throw new Error("返回内容不是有效图片。");
+      const prepared = await prepareImage(new File([blob], `pexels-${photo.id}.jpg`, { type: blob.type }));
+      const name = mediaFileName(`pexels-${photo.id}`, prepared.extension); const path = `public/images/${name}`;
+      const response = await fetch(contentsApi(path), { method: "PUT", headers: { ...headers(), "Content-Type": "application/json" }, body: JSON.stringify({ message: `upload: ${name}`, content: prepared.content, branch: config.branch.trim() }) });
+      if (!response.ok) throw new Error(await githubError(response, "网络封面保存失败。"));
+      const result = await response.json() as { content?: { sha?: string; size?: number } };
+      const saved: RepoMedia = { name, path, sha: result.content?.sha || "", size: result.content?.size || blob.size, type: "image", url: `./images/${name}` };
+      setRepoMedia((current) => [saved, ...current.filter((item) => item.path !== path)]);
+      updateDraft({ coverImage: saved.url, coverCredit: photo.photographer, coverCreditUrl: photo.url || photo.photographer_url });
+      setShowPexels(false); setState("success"); setMessage(`已保存 Pexels 摄影师 ${photo.photographer} 的图片并设为封面。`);
+    } catch (error) { setState("error"); setMessage(error instanceof TypeError ? "图片下载被浏览器拦截，请换一张图片或检查网络。" : error instanceof Error ? error.message : "网络封面保存失败。"); }
+    finally { setPexelsLoading(false); }
   }
 
   async function uploadInlineImage(event: DragEvent<HTMLTextAreaElement>) {
@@ -665,7 +715,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
               <div className="form-heading"><div><PenLine /><span><b>{editingId ? "编辑现有文章" : "新文章"}</b><small>{draftStatus} · Ctrl/⌘ + S 保存</small></span></div><span className="completion-chip">{[draft.title.trim(), draft.excerpt.trim(), draft.content.trim()].filter(Boolean).length}/3 已完成</span></div>
               <div className="writer-title"><Input className="title-input" value={draft.title} onChange={(e) => { const title = e.target.value; const autoSlug = !draft.slug || draft.slug === slugify(draft.title); updateDraft({ title, ...(autoSlug ? { slug: slugify(title) } : {}) }); }} placeholder="给这篇文章一个好标题" /><p>{draft.title.length} 字 · {editingId ? "正在编辑已发布文章" : "新文章"}</p></div>
               <div className="editor-meta-strip"><Field label="分类"><Input value={draft.category} onChange={(e) => updateDraft({ category: e.target.value })} /></Field><Field label="作者"><Input value={draft.author} onChange={(e) => updateDraft({ author: e.target.value })} /></Field><Field label="文章链接"><Input className={slugDuplicate ? "input-error" : ""} value={draft.slug} onChange={(e) => updateDraft({ slug: slugifyInput(e.target.value) })} placeholder={slugify(draft.title) || "article-url"} aria-invalid={slugDuplicate} />{slugDuplicate && <small className="field-error">该链接已被其他文章使用</small>}</Field></div>
-              <Field label="封面图片"><div className="cover-field"><Input value={draft.coverImage} onChange={(e) => updateDraft({ coverImage: e.target.value })} placeholder="图片 URL，或直接上传" /><Button type="button" variant="outline" onClick={() => imageRef.current?.click()} disabled={state === "uploading"}><ImagePlus />上传</Button><input ref={imageRef} className="file-input" type="file" accept="image/*" onChange={(event) => void uploadImage(event)} /></div>{draft.coverImage && <div className="cover-preview"><img src={draft.coverImage} alt="封面预览" /><button type="button" onClick={() => updateDraft({ coverImage: "" })}><X />移除封面</button></div>}<small className="token-hint">上传时会自动压缩大图；支持 JPG、PNG、WebP、GIF 和 SVG，最大 5MB</small></Field>
+              <Field label="封面图片"><div className="cover-field"><Input value={draft.coverImage} onChange={(e) => updateDraft({ coverImage: e.target.value, coverCredit: "", coverCreditUrl: "" })} placeholder="图片 URL，或从下方选择" /><Button type="button" variant="outline" onClick={() => imageRef.current?.click()} disabled={state === "uploading"}><ImagePlus />上传</Button><Button type="button" variant="outline" onClick={() => { setShowPexels(true); if (!pexelsPhotos.length && pexelsKey) void searchPexels(1); }}><Search />网络图库</Button><Button type="button" variant="outline" onClick={() => void searchPexels(1, true)}><Shuffle />随机一张</Button><input ref={imageRef} className="file-input" type="file" accept="image/*" onChange={(event) => void uploadImage(event)} /></div>{draft.coverImage && <div className="cover-preview"><img src={draft.coverImage} alt="封面预览" /><button type="button" onClick={() => updateDraft({ coverImage: "", coverCredit: "", coverCreditUrl: "" })}><X />移除封面</button>{draft.coverCredit && <a href={draft.coverCreditUrl} target="_blank" rel="noreferrer">图片：{draft.coverCredit} / Pexels</a>}</div>}<small className="token-hint">网络图片确认后会自动压缩并保存到 GitHub，不使用临时外链；本地图片最大 5MB</small></Field>
               <Field label="摘要"><Textarea className="summary-input" value={draft.excerpt} onChange={(e) => updateDraft({ excerpt: e.target.value })} placeholder="用一两句话说明这篇文章讲什么" /></Field>
               {contentWarnings.length > 0 && <div className="content-warnings"><b>写作建议</b>{contentWarnings.map((warning) => <span key={warning}>{warning}</span>)}<button type="button" onClick={normalizeMarkdown}>一键整理</button></div>}
               <Field label="正文"><div className="markdown-editor"><div className="markdown-toolbar" aria-label="Markdown 工具栏"><button type="button" onClick={undoContent} title="撤销"><Undo2 /><span>撤销</span></button><button type="button" onClick={redoContent} title="重做"><Redo2 /><span>重做</span></button><i/><details className="toolbar-menu"><summary><Heading2 />标题</summary><div><button type="button" onClick={() => insertMarkdown("## ", "", "小标题")}>二级标题</button><button type="button" onClick={() => insertMarkdown("### ", "", "小标题")}>三级标题</button></div></details><button type="button" onClick={() => insertMarkdown("**", "**")}><Bold /><span>粗体</span></button><button type="button" onClick={() => insertMarkdown("> ", "", "引用内容")}><Quote /><span>引用</span></button><details className="toolbar-menu"><summary><List />列表</summary><div><button type="button" onClick={() => insertMarkdown("- ", "", "列表项目")}>无序列表</button><button type="button" onClick={() => insertMarkdown("1. ", "", "列表项目")}>有序列表</button><button type="button" onClick={() => insertMarkdown("- [ ] ", "", "待办事项")}>任务列表</button></div></details><button type="button" onClick={() => insertMarkdown("[", "](https://)", "链接文字")}><Link2 /><span>链接</span></button><details className="toolbar-menu insert-menu"><summary><ImagePlus />插入</summary><div><button type="button" onClick={() => inlineImageRef.current?.click()}><ImagePlus />上传图片</button><button type="button" onClick={() => audioRef.current?.click()}><Music2 />上传音频</button><button type="button" onClick={() => setPanel("media")}><Copy />媒体库</button></div></details><details className="toolbar-menu more-menu"><summary>•••</summary><div><button type="button" onClick={() => insertMarkdown("`", "`", "代码")}><Code2 />行内代码</button><button type="button" onClick={() => insertMarkdown("```\n", "\n```", "代码")}><Code2 />代码块</button><button type="button" onClick={() => insertMarkdown("~~", "~~", "删除文字")}><Strikethrough />删除线</button><button type="button" onClick={() => insertMarkdown("\n---\n", "", "")}><Minus />分隔线</button><button type="button" onClick={() => insertMarkdown("\n| 标题 | 内容 |\n| --- | --- |\n| 项目 | 说明 |\n", "", "")}><Table2 />表格</button><button type="button" onClick={() => setShowFind(!showFind)}><Search />查找替换</button><button type="button" onClick={() => setShowOutline(!showOutline)}><List />文章目录</button></div></details><input ref={inlineImageRef} className="file-input" type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadBodyMedia(file, "image"); event.target.value = ""; }} /><input ref={audioRef} className="file-input" type="file" accept="audio/mpeg,audio/mp4,audio/ogg,audio/wav,audio/webm" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadBodyMedia(file, "audio"); event.target.value = ""; }} /></div>{showFind && <div className="find-replace"><Input value={findText} onChange={(event) => setFindText(event.target.value)} placeholder="查找内容" autoFocus/><Input value={replaceText} onChange={(event) => setReplaceText(event.target.value)} placeholder="替换为"/><Button type="button" variant="outline" onClick={replaceAllContent}>全部替换</Button></div>}<Textarea ref={editorRef} className="content-editor" value={draft.content} onChange={(e) => updateDraft({ content: e.target.value })} onSelect={(event) => { selectionRef.current = { start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }; }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => void uploadInlineImage(event)} placeholder="开始写作，也可以把图片拖到这里…" /><footer className="editor-status"><span>Markdown</span><span>{draft.content.replace(/\s/g, "").length} 字</span><span>{draft.content.split(/\n\s*\n/).filter(Boolean).length} 个段落</span><span>约 {preview.readMinutes} 分钟</span><b>{draftStatus}</b></footer></div></Field>
@@ -680,10 +730,12 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
           <section className="settings-panel"><div className="settings-intro"><FileText /><div><h2>基础信息</h2><p>决定站点名称、默认署名与内容基调。</p></div></div><div className="settings-grid"><Field label="博客名称"><Input value={siteSettings.name} onChange={(e) => setSiteSettings({ ...siteSettings, name: e.target.value })} /></Field><Field label="默认作者"><Input value={siteSettings.author} onChange={(e) => setSiteSettings({ ...siteSettings, author: e.target.value })} /></Field><Field label="默认文章分类"><Input value={siteSettings.defaultCategory} onChange={(e) => setSiteSettings({ ...siteSettings, defaultCategory: e.target.value })} /></Field></div><Field label="博客简介"><Textarea value={siteSettings.description} onChange={(e) => setSiteSettings({ ...siteSettings, description: e.target.value })} /></Field></section>
           <section className="settings-panel"><div className="settings-intro"><Sparkles /><div><h2>首页展示</h2><p>控制访客进入网站后首先看到的内容。</p></div></div><Field label="首页主标题"><Input value={siteSettings.tagline} onChange={(e) => setSiteSettings({ ...siteSettings, tagline: e.target.value })} /></Field><div className="settings-grid"><Field label="首页文章数量"><Input type="number" min={1} max={30} value={siteSettings.postsPerPage} onChange={(e) => setSiteSettings({ ...siteSettings, postsPerPage: Math.max(1, Math.min(30, Number(e.target.value) || 9)) })} /></Field><Field label="关于区域标题"><Input value={siteSettings.footer} onChange={(e) => setSiteSettings({ ...siteSettings, footer: e.target.value })} /></Field></div></section>
           <section className="settings-panel"><div className="settings-intro"><GitBranch /><div><h2>链接与页脚</h2><p>补充作者主页和全站版权信息。</p></div></div><div className="settings-grid"><Field label="GitHub 链接"><Input type="url" value={siteSettings.github} aria-invalid={Boolean(siteSettings.github && !/^https:\/\//.test(siteSettings.github))} onChange={(e) => setSiteSettings({ ...siteSettings, github: e.target.value })} /><small className="token-hint">请输入完整的 https:// 地址</small></Field><Field label="页脚版权文字"><Input value={siteSettings.copyright} onChange={(e) => setSiteSettings({ ...siteSettings, copyright: e.target.value })} /></Field></div></section>
+          <section className="settings-panel"><div className="settings-intro"><ImagePlus /><div><h2>网络图库</h2><p>Pexels Key 仅保存在当前浏览器，不会提交到 GitHub。</p></div></div><Field label="Pexels API Key"><div className="local-key-field"><Input type="password" autoComplete="off" value={pexelsKey} onChange={(event) => savePexelsKey(event.target.value)} placeholder="粘贴 Pexels API Key" /><Button type="button" variant="outline" disabled={!pexelsKey || pexelsLoading} onClick={() => void searchPexels(1)}>{pexelsLoading ? <LoaderCircle className="spin" /> : <CheckCircle2 />}测试并打开图库</Button></div><small className="token-hint">这是本机设置，导出设置和保存网站时都不会包含此密钥。</small></Field></section>
           <div className="settings-submit"><span>保存后将自动触发网站更新</span><input ref={settingsImportRef} className="file-input" type="file" accept="application/json" onChange={(event) => void importSettings(event)} /><details className="settings-more"><summary>更多</summary><div><Button type="button" variant="outline" onClick={() => setSiteSettings(initialSettings)}><RotateCcw />恢复默认</Button><Button type="button" variant="outline" onClick={() => settingsImportRef.current?.click()}><Upload />导入</Button><Button type="button" variant="outline" onClick={exportSettings}><Download />导出</Button></div></details><Button type="submit" size="lg" disabled={state === "publishing" || state === "deploying"}><Save />保存设置</Button></div>
         </form>}
       </section>
     </main>}
+    {showPexels && <div className="modal-backdrop pexels-backdrop" role="presentation" onMouseDown={() => setShowPexels(false)}><section className="pexels-picker" role="dialog" aria-modal="true" aria-labelledby="pexels-title" onMouseDown={(event) => event.stopPropagation()}><header><div><small>NETWORK COVER</small><h2 id="pexels-title">Pexels 网络图库</h2><p>选中后会压缩并保存到 GitHub 媒体库。</p></div><button onClick={() => setShowPexels(false)} aria-label="关闭"><X /></button></header><form onSubmit={(event) => { event.preventDefault(); void searchPexels(1); }}><label><Search /><input value={pexelsQuery} onChange={(event) => setPexelsQuery(event.target.value)} placeholder="搜索自然、城市、科技…" aria-label="搜索 Pexels 图片" /></label><button type="submit" disabled={pexelsLoading || !pexelsKey}>搜索</button><button type="button" disabled={pexelsLoading || !pexelsKey} onClick={() => void searchPexels(1, true)}><Shuffle />随机</button></form>{!pexelsKey && <div className="pexels-key"><KeyRound /><div><b>需要 Pexels API Key</b><small>密钥只保存在当前浏览器，不会进入网站仓库。</small></div><Input type="password" value={pexelsKey} onChange={(event) => savePexelsKey(event.target.value)} placeholder="粘贴 API Key" /></div>}{pexelsLoading ? <div className="pexels-loading"><LoaderCircle className="spin" /><p>正在获取真实图片…</p></div> : pexelsPhotos.length ? <div className="pexels-grid">{pexelsPhotos.map((photo) => <article key={photo.id}><img src={photo.src.medium} alt={photo.alt || `Pexels 摄影师 ${photo.photographer} 的图片`} loading="lazy" /><div><a href={photo.url} target="_blank" rel="noreferrer">{photo.photographer} / Pexels</a><button onClick={() => void usePexelsPhoto(photo)}>使用此封面</button></div></article>)}</div> : <div className="pexels-empty"><ImagePlus /><p>{pexelsKey ? "搜索关键词，挑选一张真实封面" : "填写 API Key 后即可搜索图片"}</p></div>}<footer><a href="https://www.pexels.com" target="_blank" rel="noreferrer">Photos provided by Pexels</a>{pexelsPhotos.length > 1 && <span><button disabled={pexelsLoading || pexelsPage <= 1} onClick={() => void searchPexels(Math.max(1, pexelsPage - 1))}><ArrowLeft />上一页</button><button disabled={pexelsLoading} onClick={() => void searchPexels(pexelsPage + 1)}>下一页<ArrowRight /></button></span>}</footer></section></div>}
     {showPublishCheck && <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowPublishCheck(false)}><section className="publish-check" role="dialog" aria-modal="true" aria-labelledby="publish-check-title" onMouseDown={(event) => event.stopPropagation()}><header><span><CheckCircle2 /></span><div><h2 id="publish-check-title">发布前检查</h2><p>确认文章信息完整后再提交到 GitHub。</p></div><button onClick={() => setShowPublishCheck(false)} aria-label="关闭"><X /></button></header><ul><li className={draft.title.trim() ? "ok" : ""}><span>{draft.title.trim() ? <CheckCircle2 /> : "1"}</span><div><b>文章标题</b><small>{draft.title.trim() || "尚未填写"}</small></div></li><li className={!slugDuplicate && draft.slug ? "ok" : "error"}><span>{!slugDuplicate && draft.slug ? <CheckCircle2 /> : "2"}</span><div><b>文章链接</b><small>{slugDuplicate ? "链接与已有文章重复" : draft.slug || "请填写文章链接"}</small></div></li><li className={draft.excerpt.trim().length >= 20 ? "ok" : "optional"}><span>{draft.excerpt.trim().length >= 20 ? <CheckCircle2 /> : "3"}</span><div><b>文章摘要</b><small>{draft.excerpt.trim() ? `${draft.excerpt.length} 字${draft.excerpt.length < 20 ? "，建议至少 20 字" : ""}` : "建议填写简短摘要"}</small></div></li><li className={draft.content.replace(/\s/g, "").length >= 50 ? "ok" : "optional"}><span>{draft.content.trim() ? <CheckCircle2 /> : "4"}</span><div><b>正文内容</b><small>{draft.content.replace(/\s/g, "").length} 字 · 约 ${preview.readMinutes} 分钟${draft.content.replace(/\s/g, "").length < 50 ? "，内容略短" : ""}</small></div></li><li className={`media-status ${mediaCheck === "ok" ? "ok" : mediaCheck === "error" ? "error" : ""}`}><span>{mediaCheck === "checking" ? <LoaderCircle className="spin" /> : mediaCheck === "ok" ? <CheckCircle2 /> : "5"}</span><div><b>媒体链接</b><small>{mediaCheck === "checking" ? "正在检查本地图片和音频…" : mediaCheck === "error" ? "发现无法访问的本地媒体" : draftMedia.length ? `已检查 ${draftMedia.length} 个媒体链接` : "正文未使用媒体"}</small></div></li><li className={draft.coverImage ? "ok optional" : "optional"}><span>{draft.coverImage ? <CheckCircle2 /> : <ImagePlus />}</span><div><b>文章封面</b><small>{draft.coverImage ? "已设置" : "可选，未设置时使用分类封面"}</small></div></li></ul><footer><Button variant="outline" onClick={() => setShowPublishCheck(false)}>继续编辑</Button><Button disabled={!draft.title.trim() || !draft.content.trim() || !draft.slug || slugDuplicate || mediaCheck !== "ok"} onClick={() => { setShowPublishCheck(false); void publish(); }}><Send />确认{editingId ? "更新" : "发布"}</Button></footer></section></div>}
     {batchDeletePending && <div className="modal-backdrop" role="presentation" onMouseDown={() => setBatchDeletePending(false)}><section className="publish-check delete-check" role="alertdialog" aria-modal="true" aria-labelledby="batch-delete-title" onMouseDown={(event) => event.stopPropagation()}><header><span><Trash2 /></span><div><h2 id="batch-delete-title">批量删除草稿？</h2><p>即将删除选中的 {selectedDraftIds.length} 份草稿，此操作无法整批撤销。</p></div><button onClick={() => setBatchDeletePending(false)} aria-label="关闭"><X /></button></header><footer><Button variant="outline" onClick={() => setBatchDeletePending(false)}>取消</Button><Button className="danger-confirm" onClick={confirmBatchDelete}><Trash2 />删除 {selectedDraftIds.length} 份草稿</Button></footer></section></div>}
     {draftDeleteTarget && <div className="modal-backdrop" role="presentation" onMouseDown={() => setDraftDeleteTarget(null)}><section className="publish-check delete-check" role="alertdialog" aria-modal="true" aria-labelledby="draft-delete-title" onMouseDown={(event) => event.stopPropagation()}><header><span><Trash2 /></span><div><h2 id="draft-delete-title">删除这份草稿？</h2><p>《{draftDeleteTarget.draft.title || "未命名草稿"}》删除后可在 8 秒内撤销。</p></div><button onClick={() => setDraftDeleteTarget(null)} aria-label="关闭"><X /></button></header><footer><Button variant="outline" onClick={() => setDraftDeleteTarget(null)}>取消</Button><Button className="danger-confirm" onClick={() => deleteDraft(draftDeleteTarget)}><Trash2 />删除草稿</Button></footer></section></div>}

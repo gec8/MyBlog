@@ -43,6 +43,12 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /cache: "no-store"/);
   assert.doesNotMatch(source, /"Cache-Control": "no-cache"/);
   assert.match(source, /已上传并加入列表/);
+  assert.match(source, /searchPexels/);
+  assert.match(source, /usePexelsPhoto/);
+  assert.match(source, /nekopress-pexels-key/);
+  assert.match(source, /coverCredit/);
+  assert.match(source, /Photos provided by Pexels/);
+  assert.match(css, /pexels-picker\.css/);
   assert.match(source, /deleteRepoMedia/);
   assert.match(source, /deleteSelectedMedia/);
   assert.match(source, /selectedMedia/);

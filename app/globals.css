@@ -2,6 +2,7 @@
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 @import './media-controls.css';
+@import './pexels-picker.css';
 
 :root { --paper:#fffaf8; --ink:#17171c; --muted:#77747c; --line:rgba(30,25,28,.09); --coral:#f04f64; --sage:#6d8c73; --panel:rgba(255,255,255,.74); --radius-sm:10px; --radius-md:16px; --radius-lg:24px; --shadow-sm:0 6px 20px rgba(35,25,30,.05); --shadow-md:0 18px 55px rgba(35,25,30,.09); }
 * { box-sizing:border-box; }
