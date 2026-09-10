@@ -47,6 +47,12 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /usePexelsPhoto/);
   assert.match(source, /nekopress-pexels-key/);
   assert.match(source, /coverCredit/);
+  assert.match(source, /coverPosition/);
+  assert.match(source, /coverBrightness/);
+  assert.match(source, /coverOverlay/);
+  assert.match(source, /coverKeywords/);
+  assert.match(source, /coverPickerTab/);
+  assert.match(source, /已从媒体库复用/);
   assert.match(source, /Photos provided by Pexels/);
   assert.match(css, /pexels-picker\.css/);
   assert.match(source, /deleteRepoMedia/);
