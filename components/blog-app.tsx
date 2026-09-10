@@ -2,7 +2,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, BarChart3, Bold, CheckCircle2, Clock3, Code2, Copy, Download, Eye, EyeOff, FilePlus2, FileText, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, LoaderCircle, LockKeyhole, LogOut, Maximize2, Menu, Minus, Minimize2, Music2, Pause, Pencil, PenLine, Play, Quote, Redo2, RefreshCw, RotateCcw, Save, Search, Send, Settings, Sparkles, Trash2, Undo2, Upload, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, BarChart3, Bold, CheckCircle2, Clock3, Code2, Copy, Download, Eye, EyeOff, FilePlus2, FileText, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, ListOrdered, LoaderCircle, LockKeyhole, LogOut, Maximize2, Menu, Minus, Minimize2, Music2, Pause, Pencil, PenLine, Play, Quote, Redo2, RefreshCw, RotateCcw, Save, Search, Send, Settings, Sparkles, Strikethrough, Table2, Trash2, Undo2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -232,13 +232,14 @@ function Markdown({ content, onImageOpen }: { content: string; onImageOpen?: (sr
   let inCode = false;
   const flushList = () => {
     if (!list.length) return;
-    blocks.push(<ul key={`list-${blocks.length}`}>{list.map((item, i) => <li key={i}>{inlineMarkdown(item)}</li>)}</ul>);
+    blocks.push(<ul key={`list-${blocks.length}`}>{list.map((item, i) => { const task = item.match(/^\[([ xX])\]\s*(.*)$/); return <li className={task ? "task-item" : undefined} key={i}>{task && <input type="checkbox" checked={task[1].toLowerCase() === "x"} readOnly/>}{inlineMarkdown(task ? task[2] : item)}</li>; })}</ul>);
     list = [];
   };
   lines.forEach((line, index) => {
     if (line.startsWith("```")) { if (inCode) { blocks.push(<pre key={`code-${index}`}><code>{code.join("\n")}</code></pre>); code = []; } inCode = !inCode; return; }
     if (inCode) { code.push(line); return; }
     if (line.startsWith("- ")) { list.push(line.slice(2)); return; }
+    if (/^\d+\.\s/.test(line)) { list.push(line.replace(/^\d+\.\s/, "")); return; }
     flushList();
     if (!line.trim()) return;
     if (line.startsWith("### ")) blocks.push(<h3 key={index}>{inlineMarkdown(line.slice(4))}</h3>);
@@ -255,8 +256,10 @@ function Markdown({ content, onImageOpen }: { content: string; onImageOpen?: (sr
 }
 
 function inlineMarkdown(value: string) {
-  return value.split(/(\*\*.*?\*\*|\[[^\]]+\]\([^)]+\))/g).filter(Boolean).map((part, index) => {
+  return value.split(/(\*\*.*?\*\*|~~.*?~~|`.*?`|\[[^\]]+\]\([^)]+\))/g).filter(Boolean).map((part, index) => {
     if (part.startsWith("**") && part.endsWith("**")) return <strong key={index}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("~~") && part.endsWith("~~")) return <del key={index}>{part.slice(2, -2)}</del>;
+    if (part.startsWith("`") && part.endsWith("`")) return <code key={index}>{part.slice(1, -1)}</code>;
     const link = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (link) return <a key={index} href={link[2]} target={link[2].startsWith("http") ? "_blank" : undefined} rel="noreferrer">{link[1]}</a>;
     return part;
@@ -294,6 +297,11 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   const [savedDrafts, setSavedDrafts] = useState<SavedDraft[]>([]);
   const [activeDraftId, setActiveDraftId] = useState(() => `draft-${Date.now()}`);
   const [mediaCheck, setMediaCheck] = useState<"idle" | "checking" | "ok" | "error">("idle");
+  const [showOutline, setShowOutline] = useState(true);
+  const [showFind, setShowFind] = useState(false);
+  const [findText, setFindText] = useState("");
+  const [replaceText, setReplaceText] = useState("");
+  const [versions, setVersions] = useState<SavedDraft[]>([]);
   const [state, setState] = useState<"idle" | "connecting" | "uploading" | "publishing" | "deploying" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
   const [draftStatus, setDraftStatus] = useState("草稿会自动保存在本机");
@@ -320,6 +328,8 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
       if (savedDraft) deferUpdate(() => setDraft({ ...emptyDraft, ...JSON.parse(savedDraft) }));
       const allDrafts = localStorage.getItem("nekopress-drafts");
       if (allDrafts) deferUpdate(() => setSavedDrafts(JSON.parse(allDrafts)));
+      const allVersions = localStorage.getItem("nekopress-versions");
+      if (allVersions) deferUpdate(() => setVersions(JSON.parse(allVersions)));
     } catch { /* ignore malformed local preference */ }
   }, []);
 
@@ -335,10 +345,10 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (dirty) event.preventDefault(); };
-    const shortcut = (event: KeyboardEvent) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); saveDraft(); } if (event.key === "Escape") { setShowPublishCheck(false); setDeleteTarget(null); } };
+    const shortcut = (event: KeyboardEvent) => { const command = event.ctrlKey || event.metaKey; if (command && event.key.toLowerCase() === "s") { event.preventDefault(); saveDraft(); } if (command && event.key.toLowerCase() === "b") { event.preventDefault(); insertMarkdown("**", "**", "加粗文字"); } if (command && event.key.toLowerCase() === "k") { event.preventDefault(); insertMarkdown("[", "](https://)", "链接文字"); } if (command && event.key.toLowerCase() === "f" && panel === "editor") { event.preventDefault(); setShowFind(true); } if (event.key === "Escape") { setShowPublishCheck(false); setDeleteTarget(null); setShowFind(false); } };
     window.addEventListener("beforeunload", warn); window.addEventListener("keydown", shortcut);
     return () => { window.removeEventListener("beforeunload", warn); window.removeEventListener("keydown", shortcut); };
-  }, [dirty, draft]);
+  }, [dirty, draft, panel]);
 
   const preview = useMemo<Post>(() => ({
     id: "preview", slug: draft.slug.trim() || slugify(draft.title) || "preview", title: draft.title || "文章标题",
@@ -354,6 +364,8 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   const slugDuplicate = useMemo(() => Boolean(draft.slug && remotePosts.some((post) => post.slug === draft.slug && post.id !== editingId)), [draft.slug, remotePosts, editingId]);
   const draftMedia = useMemo(() => [draft.coverImage, ...Array.from(draft.content.matchAll(/(?:!\[[^\]]*\]|@\[audio(?::[^\]]+)?\])\(([^)]+)\)/g), (match) => match[1])].filter(Boolean), [draft.coverImage, draft.content]);
   const mediaLibrary = useMemo(() => { const map = new Map<string, { url: string; type: "image" | "audio"; posts: string[] }>(); remotePosts.forEach((post) => { const urls = [post.coverImage, ...Array.from(post.content.matchAll(/(?:!\[[^\]]*\]|@\[audio(?::[^\]]+)?\])\(([^)]+)\)/g), (match) => match[1])].filter(Boolean) as string[]; urls.forEach((url) => { const type = /\.(?:mp3|m4a|wav|ogg|webm)(?:\?|$)/i.test(url) || url.includes("/audio/") ? "audio" : "image"; const item = map.get(url) || { url, type, posts: [] }; if (!item.posts.includes(post.title)) item.posts.push(post.title); map.set(url, item); }); }); return Array.from(map.values()); }, [remotePosts]);
+  const editorOutline = useMemo(() => Array.from(draft.content.matchAll(/^(#{2,3})\s+(.+)$/gm), (match) => ({ level: match[1].length, title: match[2], index: match.index ?? 0 })), [draft.content]);
+  const contentWarnings = useMemo(() => { const warnings: string[] = []; if (/\[[^\]]+\]\(\s*\)/.test(draft.content)) warnings.push("存在空链接"); if (/!\[\s*\]\(/.test(draft.content)) warnings.push("存在缺少说明的图片"); if (/^###\s/m.test(draft.content) && !/^##\s/m.test(draft.content)) warnings.push("标题层级从三级开始"); if (draft.content.split(/\n\s*\n/).some((item) => item.length > 500)) warnings.push("存在超过 500 字的长段落"); return warnings; }, [draft.content]);
 
   useEffect(() => {
     if (!showPublishCheck) { setMediaCheck("idle"); return; }
@@ -437,6 +449,8 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     const entry: SavedDraft = { id: activeDraftId, savedAt: new Date().toISOString(), draft };
     setSavedDrafts((current) => { const next = [entry, ...current.filter((item) => item.id !== activeDraftId)].slice(0, 20); localStorage.setItem("nekopress-drafts", JSON.stringify(next)); return next; });
     setDraftStatus("草稿已保存到本机"); setDirty(false);
+    const snapshot: SavedDraft = { id: `version-${Date.now()}`, savedAt: new Date().toISOString(), draft };
+    setVersions((current) => { const next = [snapshot, ...current].slice(0, 10); localStorage.setItem("nekopress-versions", JSON.stringify(next)); return next; });
   }
 
   function updateDraft(next: Partial<Draft>) { if (typeof next.content === "string" && next.content !== draft.content) { undoStack.current.push(draft.content); if (undoStack.current.length > 80) undoStack.current.shift(); redoStack.current = []; } setDraft((current) => ({ ...current, ...next })); setDirty(true); }
@@ -462,6 +476,9 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     const caret = start + insertion.length; selectionRef.current = { start: caret, end: caret };
     requestAnimationFrame(() => { area.focus(); area.setSelectionRange(caret, caret); });
   }
+
+  function replaceAllContent() { if (!findText) return; updateDraft({ content: draft.content.split(findText).join(replaceText) }); }
+  function jumpToContent(index: number) { const area = editorRef.current; if (!area) return; area.focus(); area.setSelectionRange(index, index); area.scrollTop = Math.max(0, index / Math.max(1, draft.content.length) * area.scrollHeight - 80); }
 
   async function uploadImage(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]; if (!file) return;
@@ -583,10 +600,13 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
               <div className="editor-meta-strip"><Field label="分类"><Input value={draft.category} onChange={(e) => updateDraft({ category: e.target.value })} /></Field><Field label="作者"><Input value={draft.author} onChange={(e) => updateDraft({ author: e.target.value })} /></Field><Field label="文章链接"><Input className={slugDuplicate ? "input-error" : ""} value={draft.slug} onChange={(e) => updateDraft({ slug: slugifyInput(e.target.value) })} placeholder={slugify(draft.title) || "article-url"} aria-invalid={slugDuplicate} />{slugDuplicate && <small className="field-error">该链接已被其他文章使用</small>}</Field></div>
               <Field label="封面图片"><div className="cover-field"><Input value={draft.coverImage} onChange={(e) => updateDraft({ coverImage: e.target.value })} placeholder="图片 URL，或直接上传" /><Button type="button" variant="outline" onClick={() => imageRef.current?.click()} disabled={state === "uploading"}><ImagePlus />上传</Button><input ref={imageRef} className="file-input" type="file" accept="image/*" onChange={(event) => void uploadImage(event)} /></div>{draft.coverImage && <div className="cover-preview"><img src={draft.coverImage} alt="封面预览" /><button type="button" onClick={() => updateDraft({ coverImage: "" })}><X />移除封面</button></div>}<small className="token-hint">上传时会自动压缩大图；支持 JPG、PNG、WebP、GIF 和 SVG，最大 5MB</small></Field>
               <Field label="摘要"><Textarea className="summary-input" value={draft.excerpt} onChange={(e) => updateDraft({ excerpt: e.target.value })} placeholder="用一两句话说明这篇文章讲什么" /></Field>
+              <div className="editor-assist"><div className="advanced-toolbar"><button type="button" onClick={() => insertMarkdown("### ", "", "三级标题")}><Heading2 />H3</button><button type="button" onClick={() => insertMarkdown("1. ", "", "有序列表")}><ListOrdered />有序列表</button><button type="button" onClick={() => insertMarkdown("- [ ] ", "", "待办事项")}><CheckCircle2 />任务</button><button type="button" onClick={() => insertMarkdown("~~", "~~", "删除文字")}><Strikethrough />删除线</button><button type="button" onClick={() => insertMarkdown("`", "`", "代码")}><Code2 />行内代码</button><button type="button" onClick={() => insertMarkdown("\n| 标题 | 内容 |\n| --- | --- |\n| 项目 | 说明 |\n", "", "")}><Table2 />表格</button><button type="button" onClick={() => setShowFind(!showFind)}><Search />查找替换</button><button type="button" onClick={() => setShowOutline(!showOutline)}><List />文章目录</button></div>{showFind && <div className="find-replace"><Input value={findText} onChange={(event) => setFindText(event.target.value)} placeholder="查找内容" autoFocus/><Input value={replaceText} onChange={(event) => setReplaceText(event.target.value)} placeholder="替换为"/><Button type="button" variant="outline" onClick={replaceAllContent}>全部替换</Button></div>}</div>
+              {contentWarnings.length > 0 && <div className="content-warnings"><b>写作建议</b>{contentWarnings.map((warning) => <span key={warning}>{warning}</span>)}</div>}
               <Field label="正文"><div className="markdown-toolbar" aria-label="Markdown 工具栏"><button type="button" onClick={undoContent} title="撤销"><Undo2 />撤销</button><button type="button" onClick={redoContent} title="重做"><Redo2 />重做</button><i/><button type="button" onClick={() => insertMarkdown("## ", "", "小标题")}><Heading2 />标题</button><button type="button" onClick={() => insertMarkdown("**", "**")}><Bold />粗体</button><button type="button" onClick={() => insertMarkdown("> ", "", "引用内容")}><Quote />引用</button><button type="button" onClick={() => insertMarkdown("- ", "", "列表项目")}><List />列表</button><button type="button" onClick={() => insertMarkdown("[", "](https://)", "链接文字")}><Link2 />链接</button><button type="button" onClick={() => insertMarkdown("```\n", "\n```", "代码")}><Code2 />代码</button><button type="button" onClick={() => insertMarkdown("\n---\n", "", "")}><Minus />分隔线</button><i/><button type="button" className="media-tool" onClick={() => inlineImageRef.current?.click()}><ImagePlus />图片</button><button type="button" className="media-tool" onClick={() => audioRef.current?.click()}><Music2 />音频</button><input ref={inlineImageRef} className="file-input" type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadBodyMedia(file, "image"); event.target.value = ""; }} /><input ref={audioRef} className="file-input" type="file" accept="audio/mpeg,audio/mp4,audio/ogg,audio/wav,audio/webm" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadBodyMedia(file, "audio"); event.target.value = ""; }} /></div><Textarea ref={editorRef} className="content-editor" value={draft.content} onChange={(e) => updateDraft({ content: e.target.value })} onSelect={(event) => { selectionRef.current = { start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd }; }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => void uploadInlineImage(event)} placeholder="开始写作，也可以把图片拖到这里…" /></Field>
             </section>
             <div className="publish-row"><p><Eye /> {draft.content.length} 字 · 约 {preview.readMinutes} 分钟阅读</p><div><Button type="button" variant="outline" onClick={saveDraft}><Save />保存草稿</Button><Button type="submit" size="lg" disabled={state === "publishing" || state === "deploying"}>{state === "publishing" ? <LoaderCircle className="spin" /> : <Send />} {state === "publishing" ? "正在提交…" : editingId ? "更新文章" : "发布文章"}</Button></div></div>
           </form>
+          {showOutline && <aside className="editor-outline"><header><b>文章结构</b><small>{editorOutline.length} 个标题</small></header>{editorOutline.length ? editorOutline.map((item) => <button type="button" className={`level-${item.level}`} key={`${item.index}-${item.title}`} onClick={() => jumpToContent(item.index)}>{item.title}</button>) : <p>使用 H2、H3 标题后会自动生成目录。</p>}<details><summary>历史版本（{versions.length}）</summary>{versions.slice(0, 5).map((item) => <button type="button" key={item.id} onClick={() => { setDraft(item.draft); setDirty(true); }}>{new Date(item.savedAt).toLocaleString("zh-CN")} · 恢复</button>)}</details></aside>}
           <aside className={`preview-panel article-preview preview-${previewSize} ${mobilePreview ? "mobile-visible" : ""}`}><div className="preview-browser"><i/><i/><i/><div className="preview-size"><button className={previewSize === "desktop" ? "active" : ""} onClick={() => setPreviewSize("desktop")}>电脑</button><button className={previewSize === "tablet" ? "active" : ""} onClick={() => setPreviewSize("tablet")}>平板</button><button className={previewSize === "mobile" ? "active" : ""} onClick={() => setPreviewSize("mobile")}>手机</button></div></div><header><small>{preview.category} · {formatDate(preview.date)}</small><h2>{preview.title}</h2><p>{preview.excerpt}</p><div><b>{preview.author.slice(0,1)}</b><span>{preview.author}<small>{preview.readMinutes} 分钟阅读</small></span></div></header><div className={`mini-cover ${coverTone(preview.category)} ${preview.coverImage ? "has-image" : ""}`}>{preview.coverImage && <img src={preview.coverImage} alt="" />}<span>{preview.category}</span></div><div className="mini-body"><Markdown content={preview.content} /></div></aside>
         </div>}
 

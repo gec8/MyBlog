@@ -16,6 +16,9 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /function Admin\(/);
   assert.match(source, /发布前检查/);
   assert.match(source, /content-editor/);
+  assert.match(source, /find-replace/);
+  assert.match(source, /editorOutline/);
+  assert.match(source, /nekopress-versions/);
 });
 
 test("音频语法与播放器状态完整", () => {
@@ -23,6 +26,8 @@ test("音频语法与播放器状态完整", () => {
   assert.match(source, /function AudioPlayer\(/);
   assert.match(source, /mediaState.*loading.*ready.*error/);
   assert.match(source, /<audio ref=/);
+  assert.match(source, /task-item/);
+  assert.match(source, /<del key=/);
 });
 
 test("移动端限制横向溢出", () => {
