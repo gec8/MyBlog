@@ -323,7 +323,8 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   useEffect(() => {
     try {
       const saved = localStorage.getItem("nekopress-repo");
-      if (saved) deferUpdate(() => setConfig(JSON.parse(saved)));
+      const sessionToken = sessionStorage.getItem("nekopress-token") ?? "";
+      if (saved) { const savedConfig = JSON.parse(saved) as RepoConfig; deferUpdate(() => { setConfig(savedConfig); if (sessionToken.startsWith("github_pat_")) { setToken(sessionToken); setConnected(true); } }); }
       const savedDraft = localStorage.getItem("nekopress-draft");
       if (savedDraft) deferUpdate(() => setDraft({ ...emptyDraft, ...JSON.parse(savedDraft) }));
       const allDrafts = localStorage.getItem("nekopress-drafts");
@@ -437,6 +438,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
       const file = await response.json() as { content: string };
       setRemotePosts(JSON.parse(decodeBase64(file.content)) as Post[]);
       localStorage.setItem("nekopress-repo", JSON.stringify(config));
+      sessionStorage.setItem("nekopress-token", accessToken);
       setConnected(true); setPanel("dashboard"); setState("idle"); setMessage("");
       void latestRun().then(setLastRun);
     } catch (error) {
@@ -554,16 +556,16 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
     <header className="admin-top"><button className="brand" onClick={() => go()}>Neko<span>Press</span></button><div>{connected && <span className="connected-chip"><CheckCircle2 /> 已连接 {config.owner}/{config.repo}</span>}<Button variant="ghost" onClick={() => go()}><LogOut />退出后台</Button></div></header>
     {!connected ? <main className="connect-layout">
       <aside className="admin-guide connect-guide">
-        <div className="guide-icon"><GitBranch /></div><p className="eyebrow">GITHUB PUBLISHING</p><h1>先连接仓库，<br/>再专心写作。</h1><span>令牌只保存在当前页面内存中，刷新或关闭页面即清除。仓库信息会保存在这台设备上。</span>
+        <div className="guide-icon"><GitBranch /></div><p className="eyebrow">GITHUB PUBLISHING</p><h1>先连接仓库，<br/>再专心写作。</h1><span>令牌只保存在当前标签页会话中，刷新页面不会退出，关闭标签页后自动清除。</span>
         <ol><li><b>01</b><span>创建 fine-grained token</span></li><li><b>02</b><span>授予此仓库 Contents 读写权限</span></li><li><b>03</b><span>验证成功后进入编辑器</span></li></ol>
       </aside>
       <section className="connect-card">
-        <div className="form-heading"><div><KeyRound /><span><b>连接博客仓库</b><small>验证 data/posts.json 是否可读写</small></span></div><span className="secure-chip">不保存令牌</span></div>
+        <div className="form-heading"><div><KeyRound /><span><b>连接博客仓库</b><small>验证 data/posts.json 是否可读写</small></span></div><span className="secure-chip">会话内保持</span></div>
         <div className="repo-grid">
           <Field label="GitHub 用户名"><Input value={config.owner} onChange={(e) => setConfig({ ...config, owner: e.target.value })} placeholder="your-name" /></Field>
           <Field label="仓库名"><Input value={config.repo} onChange={(e) => setConfig({ ...config, repo: e.target.value })} placeholder="my-blog" /></Field>
           <Field label="分支"><Input value={config.branch} onChange={(e) => setConfig({ ...config, branch: e.target.value })} placeholder="main" /></Field>
-          <Field label="Fine-grained token"><div className="token-input"><Input type={showToken ? "text" : "password"} value={token} onChange={(e) => { setToken(e.target.value.replace(/\s/g, "")); if (state === "error") { setState("idle"); setMessage(""); } }} placeholder="粘贴 github_pat_ 开头的令牌" autoComplete="off" spellCheck={false} required aria-invalid={state === "error" && !token.trim()} /><button type="button" onClick={() => setShowToken(!showToken)} aria-label={showToken ? "隐藏令牌" : "显示令牌"}>{showToken ? <EyeOff /> : <Eye />}</button></div><small className="token-hint">仅保存在当前页面 · <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">创建令牌</a> · 权限选择 Contents: Read and write</small></Field>
+          <Field label="Fine-grained token"><div className="token-input"><Input type={showToken ? "text" : "password"} value={token} onChange={(e) => { setToken(e.target.value.replace(/\s/g, "")); if (state === "error") { setState("idle"); setMessage(""); } }} placeholder="粘贴 github_pat_ 开头的令牌" autoComplete="off" spellCheck={false} required aria-invalid={state === "error" && !token.trim()} /><button type="button" onClick={() => setShowToken(!showToken)} aria-label={showToken ? "隐藏令牌" : "显示令牌"}>{showToken ? <EyeOff /> : <Eye />}</button></div><small className="token-hint">当前标签页刷新后仍有效 · <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">创建令牌</a> · 权限选择 Contents: Read and write</small></Field>
         </div>
         {message && <output className={`status-message ${state}`}>{message}</output>}
         <Button className="connect-button" onClick={() => void connect()} disabled={state === "connecting"}>{state === "connecting" ? <LoaderCircle className="spin" /> : <GitBranch />} {state === "connecting" ? "正在验证…" : "连接并开始写作"}</Button>
@@ -572,7 +574,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
       <aside className="admin-sidebar">
         <div className="workspace-id"><span>{siteSettings.name.slice(0, 1)}</span><div><b>{siteSettings.name}</b><small>{config.owner}/{config.repo}</small></div></div>
         <nav><button className={panel === "dashboard" ? "active" : ""} onClick={() => setPanel("dashboard")}><BarChart3 />概览</button><button className={panel === "posts" ? "active" : ""} onClick={() => setPanel("posts")}><List />文章 <span>{remotePosts.length}</span></button><button className={panel === "editor" ? "active" : ""} onClick={() => setPanel("editor")}><PenLine />写作{dirty && <i className="nav-dot" />}</button><button className={panel === "media" ? "active" : ""} onClick={() => setPanel("media")}><ImagePlus />媒体</button><button className={panel === "drafts" ? "active" : ""} onClick={() => setPanel("drafts")}><Save />草稿 <span>{savedDrafts.length}</span></button><button className={panel === "settings" ? "active" : ""} onClick={() => setPanel("settings")}><Settings />设置{settingsDirty && <i className="nav-dot" />}</button></nav>
-        <div className="sidebar-bottom"><div className="connection-card"><span><i/>仓库已连接</span><b>{config.branch}</b><p><LockKeyhole />令牌仅存在当前页面，刷新后自动清除。</p></div><button onClick={() => { setToken(""); setConnected(false); }}><KeyRound />断开并清除令牌</button></div>
+        <div className="sidebar-bottom"><div className="connection-card"><span><i/>仓库已连接</span><b>{config.branch}</b><p><LockKeyhole />刷新保持登录，关闭标签页后自动清除。</p></div><button onClick={() => { sessionStorage.removeItem("nekopress-token"); setToken(""); setConnected(false); }}><KeyRound />断开并清除令牌</button></div>
       </aside>
 
       <section className="workspace-main">

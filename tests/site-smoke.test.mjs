@@ -19,6 +19,8 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /find-replace/);
   assert.match(source, /editorOutline/);
   assert.match(source, /nekopress-versions/);
+  assert.match(source, /sessionStorage\.getItem\("nekopress-token"\)/);
+  assert.match(source, /sessionStorage\.removeItem\("nekopress-token"\)/);
 });
 
 test("音频语法与播放器状态完整", () => {
