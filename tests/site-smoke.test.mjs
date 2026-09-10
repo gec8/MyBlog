@@ -4,6 +4,7 @@ import test from "node:test";
 
 const source = readFileSync("components/blog-app.tsx", "utf8");
 const css = readFileSync("app/globals.css", "utf8");
+const draftUtils = readFileSync("components/admin/draft-utils.ts", "utf8");
 
 test("首页与文章路由保持可用", () => {
   assert.match(source, /view: "home"/);
@@ -33,6 +34,8 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /batchDeleteDrafts/);
   assert.match(source, /confirmBatchDelete/);
   assert.match(source, /selectedDraftIds/);
+  assert.match(source, /draft-filters/);
+  assert.match(draftUtils, /filterAndSortDrafts/);
   assert.match(source, /meaningfulDraft/);
   assert.match(source, /登录会话已失效/);
 });
