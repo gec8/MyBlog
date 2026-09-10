@@ -52,6 +52,9 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /coverOverlay/);
   assert.match(source, /coverKeywords/);
   assert.match(source, /coverPickerTab/);
+  assert.match(source, /coverCategories/);
+  assert.match(source, /pexelsCategory/);
+  assert.match(source, /选择图片分类/);
   assert.match(source, /已从媒体库复用/);
   assert.match(source, /Photos provided by Pexels/);
   assert.match(css, /pexels-picker\.css/);

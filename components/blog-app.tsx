@@ -1229,6 +1229,16 @@ type PexelsPhoto = {
   alt: string;
   src: { medium: string; large: string; large2x: string };
 };
+const coverCategories = [
+  { label: '自然风景', value: '自然' },
+  { label: '城市建筑', value: '城市 建筑' },
+  { label: '科技数码', value: '科技' },
+  { label: '人物生活', value: '人物 生活' },
+  { label: '旅行探索', value: '旅行' },
+  { label: '美食饮品', value: '美食' },
+  { label: '动物萌宠', value: '动物' },
+  { label: '抽象背景', value: '抽象 背景' },
+] as const;
 const emptyDraft: Draft = {
   title: '',
   slug: '',
@@ -1333,6 +1343,7 @@ function Admin({
   const [pexelsKey, setPexelsKey] = useState('');
   const [showPexels, setShowPexels] = useState(false);
   const [pexelsQuery, setPexelsQuery] = useState('自然');
+  const [pexelsCategory, setPexelsCategory] = useState('自然');
   const [pexelsPhotos, setPexelsPhotos] = useState<PexelsPhoto[]>([]);
   const [pexelsLoading, setPexelsLoading] = useState(false);
   const [pexelsPage, setPexelsPage] = useState(1);
@@ -4831,11 +4842,33 @@ function Admin({
                 void searchPexels(1);
               }}
             >
+              <select
+                value={pexelsCategory}
+                aria-label="选择图片分类"
+                onChange={(event) => {
+                  const category = event.target.value;
+                  setPexelsCategory(category);
+                  if (category !== 'custom') {
+                    setPexelsQuery(category);
+                    void searchPexels(1, false, category);
+                  }
+                }}
+              >
+                {coverCategories.map((category) => (
+                  <option key={category.value} value={category.value}>
+                    {category.label}
+                  </option>
+                ))}
+                <option value="custom">自定义搜索</option>
+              </select>
               <label>
                 <Search />
                 <input
                   value={pexelsQuery}
-                  onChange={(event) => setPexelsQuery(event.target.value)}
+                  onChange={(event) => {
+                    setPexelsQuery(event.target.value);
+                    setPexelsCategory('custom');
+                  }}
                   placeholder="搜索自然、城市、科技…"
                   aria-label="搜索 Pexels 图片"
                 />
