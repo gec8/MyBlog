@@ -58,6 +58,10 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /deleteRepoMedia/);
   assert.match(source, /deleteSelectedMedia/);
   assert.match(source, /selectedMedia/);
+  assert.match(source, /normalizeMediaUrl/);
+  assert.match(source, /草稿：/);
+  assert.match(source, /deleteRepoMediaWithoutConfirm/);
+  assert.match(source, /loadBrowserImage/);
   assert.match(source, /使用中，不能删除/);
   assert.match(css, /media-filters/);
   assert.match(css, /media-actions/);

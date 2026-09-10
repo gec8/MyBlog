@@ -2,7 +2,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, BarChart3, Bold, CheckCircle2, Clock3, Code2, Copy, Download, Eye, EyeOff, FilePlus2, FileText, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, ListOrdered, LoaderCircle, LockKeyhole, LogOut, Maximize2, Menu, Minus, Minimize2, Music2, Pause, Pencil, PenLine, Play, Quote, Redo2, RefreshCw, RotateCcw, Save, Search, Send, Settings, Shuffle, Sparkles, Strikethrough, Table2, Trash2, Undo2, Upload, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, BarChart3, Bold, CheckCircle2, Clock3, Code2, Copy, Download, Eye, EyeOff, FilePlus2, FileText, GitBranch, Heading2, ImagePlus, KeyRound, Link2, List, ListFilter, LoaderCircle, LockKeyhole, LogOut, Maximize2, Menu, Minus, Minimize2, Music2, Pause, Pencil, PenLine, Play, Quote, Redo2, RefreshCw, RotateCcw, Save, Search, Send, Settings, Shuffle, Sparkles, Strikethrough, Table2, Trash2, Undo2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -411,8 +411,8 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
   const visiblePosts = useMemo(() => remotePosts.filter((post) => (categoryFilter === "全部" || post.category === categoryFilter) && `${post.title} ${post.excerpt}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => sortOrder === "title" ? a.title.localeCompare(b.title, "zh-CN") : sortOrder === "oldest" ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)), [remotePosts, categoryFilter, query, sortOrder]);
   const slugDuplicate = useMemo(() => Boolean(draft.slug && remotePosts.some((post) => post.slug === draft.slug && post.id !== editingId)), [draft.slug, remotePosts, editingId]);
   const draftMedia = useMemo(() => [draft.coverImage, ...Array.from(draft.content.matchAll(/(?:!\[[^\]]*\]|@\[audio(?::[^\]]+)?\])\(([^)]+)\)/g), (match) => match[1])].filter(Boolean), [draft.coverImage, draft.content]);
-  const mediaLibrary = useMemo(() => { const map = new Map<string, { url: string; type: "image" | "audio"; posts: string[] }>(); remotePosts.forEach((post) => { const urls = [post.coverImage, ...Array.from(post.content.matchAll(/(?:!\[[^\]]*\]|@\[audio(?::[^\]]+)?\])\(([^)]+)\)/g), (match) => match[1])].filter(Boolean) as string[]; urls.forEach((url) => { const type = /\.(?:mp3|m4a|wav|ogg|webm)(?:\?|$)/i.test(url) || url.includes("/audio/") ? "audio" : "image"; const item = map.get(url) || { url, type, posts: [] }; if (!item.posts.includes(post.title)) item.posts.push(post.title); map.set(url, item); }); }); return Array.from(map.values()); }, [remotePosts]);
-  const allMedia = useMemo(() => repoMedia.map((file) => ({ ...file, posts: mediaLibrary.find((item) => item.url === file.url)?.posts ?? [] })).filter((item) => mediaFilter === "all" || (mediaFilter === "unused" ? !item.posts.length : item.type === mediaFilter)), [repoMedia, mediaLibrary, mediaFilter]);
+  const mediaLibrary = useMemo(() => { const map = new Map<string, { url: string; type: "image" | "audio"; posts: string[] }>(); const sources = [...remotePosts.map((post) => ({ title: post.title, coverImage: post.coverImage ?? "", content: post.content })), ...savedDrafts.map((item) => ({ title: `草稿：${item.draft.title || "未命名"}`, coverImage: item.draft.coverImage, content: item.draft.content })), { title: `当前编辑：${draft.title || "未命名"}`, coverImage: draft.coverImage, content: draft.content }]; sources.forEach((source) => { const urls = [source.coverImage, ...Array.from(source.content.matchAll(/(?:!\[[^\]]*\]|@\[audio(?::[^\]]+)?\])\(([^)]+)\)/g), (match) => match[1])].filter(Boolean) as string[]; urls.forEach((rawUrl) => { const url = normalizeMediaUrl(rawUrl); const type = /\.(?:mp3|m4a|wav|ogg|webm)(?:\?|$)/i.test(url) || url.includes("/audio/") ? "audio" : "image"; const item = map.get(url) || { url, type, posts: [] }; if (!item.posts.includes(source.title)) item.posts.push(source.title); map.set(url, item); }); }); return Array.from(map.values()); }, [remotePosts, savedDrafts, draft]);
+  const allMedia = useMemo(() => repoMedia.map((file) => ({ ...file, posts: mediaLibrary.find((item) => item.url === normalizeMediaUrl(file.url))?.posts ?? [] })).filter((item) => mediaFilter === "all" || (mediaFilter === "unused" ? !item.posts.length : item.type === mediaFilter)), [repoMedia, mediaLibrary, mediaFilter]);
   const visibleDrafts = useMemo(() => filterAndSortDrafts(savedDrafts, draftQuery, draftKind, draftSort), [savedDrafts, draftQuery, draftKind, draftSort]);
   const editorOutline = useMemo(() => Array.from(draft.content.matchAll(/^(#{2,3})\s+(.+)$/gm), (match) => ({ level: match[1].length, title: match[2], index: match.index ?? 0 })), [draft.content]);
   const contentWarnings = useMemo(() => { const warnings: string[] = []; if (/\[[^\]]+\]\(\s*\)/.test(draft.content)) warnings.push("存在空链接"); if (/!\[\s*\]\(/.test(draft.content)) warnings.push("存在缺少说明的图片"); if (/^###\s/m.test(draft.content) && !/^##\s/m.test(draft.content)) warnings.push("标题层级从三级开始"); if (draft.content.split(/\n\s*\n/).some((item) => item.length > 500)) warnings.push("存在超过 500 字的长段落"); if (/^https?:/i.test(draft.coverImage)) warnings.push("封面仍是外部链接，建议上传到媒体库"); if (draft.coverPexelsId && (!draft.coverCredit || !draft.coverCreditUrl)) warnings.push("Pexels 封面缺少来源署名"); return warnings; }, [draft.content, draft.coverImage, draft.coverPexelsId, draft.coverCredit, draft.coverCreditUrl]);
@@ -449,8 +449,8 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
 
   async function deleteRepoMedia(item: RepoMedia & { posts: string[] }) { if (item.posts.length) { setState("error"); setMessage(`无法删除：该媒体被 ${item.posts.length} 篇文章引用。`); return; } if (!window.confirm(`确定删除 ${item.name} 吗？GitHub 历史记录中仍可恢复。`)) return; const response = await fetch(contentsApi(item.path), { method: "DELETE", headers: { ...headers(), "Content-Type": "application/json" }, body: JSON.stringify({ message: `delete media: ${item.name}`, sha: item.sha, branch: config.branch.trim() }) }); if (!response.ok) { setState("error"); setMessage("媒体删除失败，请同步后重试。"); return; } setRepoMedia((current) => current.filter((file) => file.path !== item.path)); setState("success"); setMessage("媒体已删除，GitHub 历史版本中仍可恢复。"); }
 
-  async function deleteSelectedMedia() { const deletable = allMedia.filter((item) => selectedMedia.includes(item.path) && !item.posts.length); if (!deletable.length) { setState("error"); setMessage("所选媒体均在使用中，不能删除。"); return; } if (!window.confirm(`将删除 ${deletable.length} 个未引用媒体，被引用的文件会自动跳过。`)) return; for (const item of deletable) await deleteRepoMediaWithoutConfirm(item); setSelectedMedia([]); setManagingMedia(false); setState("success"); setMessage(`已删除 ${deletable.length} 个未引用媒体。`); }
-  async function deleteRepoMediaWithoutConfirm(item: RepoMedia) { await fetch(contentsApi(item.path), { method: "DELETE", headers: { ...headers(), "Content-Type": "application/json" }, body: JSON.stringify({ message: `delete media: ${item.name}`, sha: item.sha, branch: config.branch.trim() }) }); setRepoMedia((current) => current.filter((file) => file.path !== item.path)); }
+  async function deleteSelectedMedia() { const deletable = allMedia.filter((item) => selectedMedia.includes(item.path) && !item.posts.length); if (!deletable.length) { setState("error"); setMessage("所选媒体均在使用中，不能删除。"); return; } if (!window.confirm(`将删除 ${deletable.length} 个未引用媒体，被引用的文件会自动跳过。`)) return; const failed: string[] = []; for (const item of deletable) { if (!await deleteRepoMediaWithoutConfirm(item)) failed.push(item.name); } setSelectedMedia(failed.length ? deletable.filter((item) => failed.includes(item.name)).map((item) => item.path) : []); if (!failed.length) setManagingMedia(false); setState(failed.length ? "error" : "success"); setMessage(failed.length ? `已删除 ${deletable.length - failed.length} 个，${failed.length} 个删除失败，请刷新后重试。` : `已删除 ${deletable.length} 个未引用媒体。`); }
+  async function deleteRepoMediaWithoutConfirm(item: RepoMedia) { try { const response = await fetch(contentsApi(item.path), { method: "DELETE", headers: { ...headers(), "Content-Type": "application/json" }, body: JSON.stringify({ message: `delete media: ${item.name}`, sha: item.sha, branch: config.branch.trim() }) }); if (!response.ok) return false; setRepoMedia((current) => current.filter((file) => file.path !== item.path)); return true; } catch { return false; } }
 
   async function latestRun() {
     const response = await fetch(`https://api.github.com/repos/${config.owner.trim()}/${config.repo.trim()}/actions/runs?per_page=1`, { headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" } });
@@ -537,7 +537,7 @@ function Admin({ posts, initialSettings }: { posts: Post[]; initialSettings: Sit
 
   function insertMarkdown(prefix: string, suffix = prefix, placeholder = "文字") {
     const area = editorRef.current; if (!area) return;
-    let { start, end } = selectionRef.current; const selected = draft.content.slice(start, end) || placeholder;
+    const { start, end } = selectionRef.current; const selected = draft.content.slice(start, end) || placeholder;
     const heading = prefix.match(/^(#{1,6})\s$/);
     if (heading) {
       const lineStart = draft.content.lastIndexOf("\n", Math.max(0, start - 1)) + 1; const nextBreak = draft.content.indexOf("\n", end); const lineEnd = nextBreak < 0 ? draft.content.length : nextBreak;
@@ -772,6 +772,12 @@ function mediaFileName(originalName: string, extension: string) {
   return `${base}-${Date.now()}.${extension.toLowerCase()}`;
 }
 
+function normalizeMediaUrl(value: string) {
+  const clean = value.trim().split(/[?#]/)[0];
+  const match = clean.match(/(?:^|\/)(images|audio)\/([^/]+)$/i);
+  return match ? `./${match[1].toLowerCase()}/${match[2]}` : value.trim();
+}
+
 function coverKeywords(title: string, category: string) {
   const text = `${title} ${category}`;
   if (/代码|开发|技术|GitHub|程序|软件/i.test(text)) return "coding workspace technology";
@@ -809,7 +815,7 @@ function encodeBase64(value: string) {
 function fileToBase64(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result.split(",")[1] ?? "" : "");
     reader.onerror = () => reject(new Error("无法读取图片文件。"));
     reader.readAsDataURL(file);
   });
@@ -818,12 +824,20 @@ function fileToBase64(file: File) {
 async function prepareImage(file: File): Promise<{ content: string; extension: string }> {
   const originalExtension = file.name.split(".").pop()?.replace(/[^a-z0-9]/gi, "").toLowerCase() || "jpg";
   if (file.type === "image/gif" || file.type === "image/svg+xml" || file.size < 700 * 1024) return { content: await fileToBase64(file), extension: originalExtension };
-  const bitmap = await createImageBitmap(file); const scale = Math.min(1, 1800 / bitmap.width);
-  const canvas = document.createElement("canvas"); canvas.width = Math.round(bitmap.width * scale); canvas.height = Math.round(bitmap.height * scale);
-  canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
+  let source: CanvasImageSource; let width: number; let height: number; let close = () => {};
+  try { const bitmap = await createImageBitmap(file); source = bitmap; width = bitmap.width; height = bitmap.height; close = () => bitmap.close(); }
+  catch { const image = await loadBrowserImage(file); source = image; width = image.naturalWidth; height = image.naturalHeight; close = () => URL.revokeObjectURL(image.src); }
+  const scale = Math.min(1, 1800 / width);
+  const canvas = document.createElement("canvas"); canvas.width = Math.round(width * scale); canvas.height = Math.round(height * scale);
+  const context = canvas.getContext("2d"); if (!context) { close(); return { content: await fileToBase64(file), extension: originalExtension }; }
+  context.drawImage(source, 0, 0, canvas.width, canvas.height); close();
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", .84));
   if (!blob) return { content: await fileToBase64(file), extension: originalExtension };
   return { content: await fileToBase64(new File([blob], "cover.webp", { type: "image/webp" })), extension: "webp" };
+}
+
+function loadBrowserImage(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => { URL.revokeObjectURL(image.src); reject(new Error("当前浏览器无法处理这张图片，请改用 JPG、PNG 或 WebP。")); }; image.src = URL.createObjectURL(file); });
 }
 
 function Footer({ settings }: { settings?: SiteSettings }) {

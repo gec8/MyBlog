@@ -12,7 +12,7 @@ export function SiteHealth({ run, onRefresh }: { run: RunInfo; onRefresh: () => 
 
   useEffect(() => {
     fetch("./build-info.json", { cache: "no-store" })
-      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((response) => response.ok ? response.json() as Promise<BuildInfo> : Promise.reject(new Error("build info unavailable")))
       .then(setBuild)
       .catch(() => setBuild(null))
       .finally(() => setLoading(false));
