@@ -59,8 +59,15 @@
     "excerpt": "不赶进度，不追热点，认真收藏真正让人好奇的东西。",
     "category": "随笔",
     "author": "Neko",
+    "coverImage": "./images/pexels-31829081.jpg",
+    "coverCredit": "Ted Gao",
+    "coverCreditUrl": "https://www.pexels.com/photo/peaceful-countryside-view-in-china-on-a-sunny-day-31829081/",
+    "coverPosition": "50% 50%",
+    "coverBrightness": 100,
+    "coverOverlay": 12,
+    "coverPexelsId": 31829081,
     "date": "2026-08-31",
-    "readMinutes": 6,
+    "readMinutes": 1,
     "content": "## 不必立刻有用\n\n有些兴趣没有明确的回报：读一本冷门小书，研究一种早已过时的界面，或者在周末反复调整一杯咖啡的比例。\n\n它们的价值，恰恰在于暂时不需要证明价值。\n\n## 给好奇心留一张椅子\n\n当效率成为习惯，我们更需要主动留出一点漫游的时间。不是为了马上得到答案，而是为了不忘记自己还会被什么吸引。"
   }
 ]
