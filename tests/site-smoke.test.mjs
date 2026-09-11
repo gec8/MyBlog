@@ -100,6 +100,8 @@ test("移动端限制横向溢出", () => {
   assert.match(pexelsCss, /height: min\(760px,calc\(100dvh - 36px\)\)/);
   assert.match(pexelsCss, /flex: 1 1 auto/);
   assert.match(pexelsCss, /-webkit-overflow-scrolling: touch/);
+  assert.match(pexelsCss, /grid-auto-rows: max-content/);
+  assert.match(pexelsCss, /height: clamp\(170px,18vw,210px\)/);
 });
 
 test("构建产物包含首页与健康信息", () => {
