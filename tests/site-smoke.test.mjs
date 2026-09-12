@@ -116,6 +116,8 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(source, /function UserManagement/);
   assert.match(source, /nekopress-auth-token/);
   assert.match(authWorker, /PBKDF2/);
+  assert.match(authWorker, /value\.length >= 6/);
+  assert.match(source, /minLength=\{6\}/);
   assert.match(authWorker, /failed_attempts/);
   assert.match(authWorker, /requireOwner/);
   assert.match(authWorker, /token_hash/);
