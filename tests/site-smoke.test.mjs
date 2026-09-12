@@ -7,8 +7,11 @@ const css = readFileSync("app/globals.css", "utf8");
 const pexelsCss = readFileSync("app/pexels-picker.css", "utf8");
 const draftUtils = readFileSync("components/admin/draft-utils.ts", "utf8");
 const authWorker = readFileSync("auth-worker/src/index.ts", "utf8");
+const designSystem = readFileSync("components/admin/design-system.tsx", "utf8");
+const monitoring = readFileSync("services/monitoring/client.ts", "utf8");
 const authSchema = readFileSync("auth-worker/migrations/0001_users.sql", "utf8");
 const maintenanceSchema = readFileSync("auth-worker/migrations/0003_drafts_backups_preferences_media.sql", "utf8");
+const monitoringSchema = readFileSync("auth-worker/migrations/0004_error_monitoring.sql", "utf8");
 
 test("首页与文章路由保持可用", () => {
   assert.match(source, /view: ['"]home['"]/);
@@ -90,10 +93,10 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /\/api\/snapshots/);
   assert.match(source, /替换原文件/);
   assert.match(source, /fileHash/);
-  assert.match(source, /全站共享/);
-  assert.match(source, /账号同步/);
-  assert.match(source, /当前设备/);
-  assert.match(source, /网络连接失败/);
+  assert.match(designSystem, /全站共享/);
+  assert.match(designSystem, /账号同步/);
+  assert.match(designSystem, /当前设备/);
+  assert.match(monitoring, /installGlobalErrorMonitoring/);
 });
 
 test("音频语法与播放器状态完整", () => {
@@ -159,10 +162,12 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(authWorker, /media_assets/);
   assert.match(authWorker, /contentHash/);
   assert.match(authWorker, /githubHttpError/);
+  assert.match(authWorker, /error_events/);
   assert.match(authSchema, /CREATE TABLE IF NOT EXISTS users/);
   assert.match(authSchema, /CREATE TABLE IF NOT EXISTS audit_logs/);
   assert.match(maintenanceSchema, /CREATE TABLE IF NOT EXISTS cloud_drafts/);
   assert.match(maintenanceSchema, /CREATE TABLE IF NOT EXISTS content_snapshots/);
   assert.match(maintenanceSchema, /CREATE TABLE IF NOT EXISTS user_preferences/);
   assert.match(maintenanceSchema, /CREATE TABLE IF NOT EXISTS media_assets/);
+  assert.match(monitoringSchema, /CREATE TABLE IF NOT EXISTS error_events/);
 });

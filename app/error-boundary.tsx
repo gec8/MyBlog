@@ -1,6 +1,7 @@
 "use client";
 
 import { Component, ErrorInfo, ReactNode } from "react";
+import { reportClientError } from "@/services/monitoring/client";
 
 export class SiteErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -9,6 +10,7 @@ export class SiteErrorBoundary extends Component<{ children: ReactNode }, { fail
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("NekoPress render error", error, info.componentStack);
+    reportClientError({ category: "render", severity: "fatal", message: error.message, detail: `${error.stack ?? ""}\n${info.componentStack ?? ""}` });
   }
 
   render() {

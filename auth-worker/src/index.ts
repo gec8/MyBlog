@@ -41,6 +41,8 @@ export default {
       const url = new URL(request.url);
       if (url.pathname === '/api/health')
         return json({ ok: true, service: 'NekoPress Auth' }, 200, cors);
+      if (url.pathname === '/api/errors' && request.method === 'POST')
+        return collectClientError(request, env, origin, cors);
       if (url.pathname === '/api/setup/status' && request.method === 'GET') {
         const row = await env.DB.prepare(
           'SELECT COUNT(*) AS count FROM users',
@@ -157,9 +159,30 @@ export default {
         ).all();
         return json({ logs: result.results }, 200, cors);
       }
+      if (url.pathname === '/api/errors' && request.method === 'GET') {
+        requireOwner(auth.user);
+        return listErrors(url, env, cors);
+      }
+      const errorMatch = url.pathname.match(/^\/api\/errors\/([^/]+)$/);
+      if (errorMatch && request.method === 'PATCH') {
+        requireOwner(auth.user);
+        await env.DB.prepare('UPDATE error_events SET resolved = 1 WHERE id = ?').bind(decodeURIComponent(errorMatch[1])).run();
+        return json({ ok: true }, 200, cors);
+      }
       return json({ error: '接口不存在。' }, 404, cors);
     } catch (error) {
       const status = error instanceof HttpError ? error.status : 500;
+      if (status >= 500) {
+        const message = error instanceof Error ? error.message : '服务暂时不可用。';
+        await recordError(env, {
+          source: /GitHub|线上文件|发布/.test(message) ? 'github' : 'api',
+          severity: status >= 500 ? 'error' : 'warning',
+          category: error instanceof HttpError ? `http_${status}` : 'unhandled',
+          message,
+          detail: error instanceof Error ? error.stack : '',
+          route: new URL(request.url).pathname,
+        }).catch(() => { /* do not mask the original error */ });
+      }
       return json(
         { error: error instanceof Error ? error.message : '服务暂时不可用。' },
         status,
@@ -514,6 +537,41 @@ async function publishArticle(env: Env, post: Record<string, unknown>, editingId
   await writeGithubJson(env, 'data/posts.json', nextPosts, `${editingId ? 'update' : 'publish'}: ${String(post.title)}`, current.sha);
   const latest = await readGithubJson<Record<string, unknown>[]>(env, 'data/posts.json');
   return { posts: nextPosts, post: nextPost, sha: latest.sha };
+}
+
+type ErrorEventInput = {
+  source: 'frontend' | 'api' | 'github' | 'deployment';
+  severity: 'warning' | 'error' | 'fatal';
+  category: string;
+  message: string;
+  detail?: string;
+  route?: string;
+  actorUserId?: string;
+};
+
+async function recordError(env: Env, event: ErrorEventInput) {
+  await env.DB.prepare('INSERT INTO error_events (id, source, severity, category, message, detail, route, actor_user_id, resolved, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)')
+    .bind(id(), event.source, event.severity, event.category.slice(0, 80), event.message.slice(0, 500), event.detail?.slice(0, 4000) || null, event.route?.slice(0, 500) || null, event.actorUserId || null, now()).run();
+}
+
+async function collectClientError(request: Request, env: Env, origin: string, cors: Record<string, string>) {
+  if (origin && origin !== env.ALLOWED_ORIGIN && origin !== 'http://localhost:3000') throw new HttpError(403, '错误报告来源无效。');
+  const data = await body(request);
+  const source = String(data.source ?? 'frontend') as ErrorEventInput['source'];
+  const severity = String(data.severity ?? 'error') as ErrorEventInput['severity'];
+  if (!['frontend', 'deployment'].includes(source) || !['warning', 'error', 'fatal'].includes(severity)) throw new HttpError(400, '错误报告格式无效。');
+  const message = String(data.message ?? '').trim();
+  if (!message) throw new HttpError(400, '错误报告不能为空。');
+  await recordError(env, { source, severity, category: String(data.category ?? 'unknown'), message, detail: String(data.detail ?? ''), route: String(data.route ?? '') });
+  return json({ ok: true }, 202, cors);
+}
+
+async function listErrors(url: URL, env: Env, cors: Record<string, string>) {
+  const includeResolved = url.searchParams.get('resolved') === 'all';
+  const where = includeResolved ? '' : 'WHERE resolved = 0';
+  const result = await env.DB.prepare(`SELECT id, source, severity, category, message, detail, route, resolved, created_at FROM error_events ${where} ORDER BY created_at DESC LIMIT 50`).all();
+  const open = await env.DB.prepare('SELECT COUNT(*) AS count FROM error_events WHERE resolved = 0').first<{ count: number }>();
+  return json({ errors: result.results, openCount: Number(open?.count ?? 0) }, 200, cors);
 }
 async function createSnapshot(env: Env, userId: string, kind: 'article' | 'settings', targetId: string | null, title: string, payload: unknown) {
   await env.DB.prepare('INSERT INTO content_snapshots (id, kind, target_id, title, payload_json, actor_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')

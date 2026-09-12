@@ -38,7 +38,6 @@ import {
   LockKeyhole,
   LogOut,
   Maximize2,
-  Menu,
   Minus,
   Minimize2,
   Music2,
@@ -69,6 +68,22 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { SiteHealth } from '@/components/admin/site-health';
+import { ScopeBadge } from '@/components/admin/design-system';
+import { SiteFooter, SiteHeader } from '@/components/frontend/site-shell';
+import { authClient } from '@/services/auth/client';
+import { createContentClient } from '@/services/content/client';
+import { apiRequest } from '@/services/api-client';
+import { installGlobalErrorMonitoring } from '@/services/monitoring/client';
+import type {
+  AdminUser,
+  ArticleReview,
+  ContentSnapshot,
+  Draft,
+  Post,
+  RepoMedia,
+  SavedDraft,
+  SiteSettings,
+} from '@/types/blog';
 import {
   DraftKind,
   DraftSort,
@@ -76,36 +91,7 @@ import {
   filterAndSortDrafts,
 } from '@/components/admin/draft-utils';
 
-export type Post = {
-  id: string;
-  slug: string;
-  title: string;
-  excerpt: string;
-  category: string;
-  author: string;
-  date: string;
-  readMinutes: number;
-  content: string;
-  coverImage?: string;
-  coverCredit?: string;
-  coverCreditUrl?: string;
-  coverPosition?: string;
-  coverBrightness?: number;
-  coverOverlay?: number;
-  coverPexelsId?: number;
-};
-
-export type SiteSettings = {
-  name: string;
-  tagline: string;
-  description: string;
-  author: string;
-  defaultCategory: string;
-  postsPerPage: number;
-  github: string;
-  footer: string;
-  copyright: string;
-};
+export type { Post, SiteSettings } from '@/types/blog';
 
 type Route =
   | { view: 'home' }
@@ -162,6 +148,11 @@ export function BlogApp({
 }) {
   const [route, setRoute] = useState<Route>({ view: 'home' });
   const [posts, setPosts] = useState(initialPosts);
+  useEffect(() => installGlobalErrorMonitoring(), []);
+  useEffect(() => {
+    document.documentElement.dataset.appReady = 'true';
+    return () => { delete document.documentElement.dataset.appReady; };
+  }, []);
   useEffect(() => {
     const sync = () => setRoute(readRoute());
     deferUpdate(sync);
@@ -195,81 +186,7 @@ function Header({
   compact?: boolean;
   name?: string;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  useEffect(() => {
-    if (!menuOpen) return;
-    const previous = document.body.style.overflow;
-    const close = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenuOpen(false);
-    };
-    document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', close);
-    return () => {
-      document.body.style.overflow = previous;
-      window.removeEventListener('keydown', close);
-    };
-  }, [menuOpen]);
-  return (
-    <header className="site-header">
-      <div className="site-width header-inner">
-        <button className="brand" onClick={() => go()} aria-label="返回首页">
-          <span className="cat-logo">猫</span>
-          {name}
-        </button>
-        <nav className={menuOpen ? 'nav-open' : ''} aria-label="主导航">
-          <button
-            className={compact ? 'active' : ''}
-            onClick={() => {
-              setMenuOpen(false);
-              go();
-              setTimeout(
-                () => document.querySelector('#latest')?.scrollIntoView(),
-                40,
-              );
-            }}
-          >
-            文章
-          </button>
-          <button
-            onClick={() => {
-              setMenuOpen(false);
-              go();
-              setTimeout(
-                () => document.querySelector('#about')?.scrollIntoView(),
-                40,
-              );
-            }}
-          >
-            关于
-          </button>
-          <button
-            className="write-link"
-            onClick={() => {
-              setMenuOpen(false);
-              go('admin');
-            }}
-          >
-            <PenLine size={14} /> 写文章
-          </button>
-        </nav>
-        {menuOpen && (
-          <button
-            className="nav-backdrop"
-            aria-label="关闭菜单"
-            onClick={() => setMenuOpen(false)}
-          />
-        )}
-        <button
-          className="menu-toggle"
-          onClick={() => setMenuOpen(!menuOpen)}
-          aria-expanded={menuOpen}
-          aria-label={menuOpen ? '关闭菜单' : '打开菜单'}
-        >
-          {menuOpen ? <X /> : <Menu />}
-        </button>
-      </div>
-    </header>
-  );
+  return <SiteHeader compact={compact} name={name} />;
 }
 
 function Home({ posts, settings }: { posts: Post[]; settings: SiteSettings }) {
@@ -1198,30 +1115,6 @@ function NotFound() {
 }
 
 type RepoConfig = { owner: string; repo: string; branch: string };
-type Draft = {
-  title: string;
-  slug: string;
-  excerpt: string;
-  category: string;
-  author: string;
-  coverImage: string;
-  coverCredit: string;
-  coverCreditUrl: string;
-  coverPosition: string;
-  coverBrightness: number;
-  coverOverlay: number;
-  coverPexelsId?: number;
-  content: string;
-};
-type SavedDraft = { id: string; savedAt: string; draft: Draft };
-type RepoMedia = {
-  name: string;
-  path: string;
-  sha: string;
-  url: string;
-  size: number;
-  type: 'image' | 'audio';
-};
 type PexelsPhoto = {
   id: number;
   width: number;
@@ -1257,31 +1150,6 @@ const emptyDraft: Draft = {
   content: '## 从这里开始\n\n写下你的正文。',
 };
 
-type AdminUser = {
-  id: string;
-  username: string;
-  displayName: string;
-  role: 'owner' | 'editor' | 'author';
-  enabled: boolean;
-  mustChangePassword: boolean;
-  createdAt: string;
-  lastLoginAt: string | null;
-};
-type ArticleReview = {
-  id: string;
-  articleId: string | null;
-  title: string;
-  slug: string;
-  post: Post;
-  baseSha: string | null;
-  status: 'pending' | 'approved' | 'rejected';
-  authorName: string;
-  note: string | null;
-  createdAt: string;
-};
-type ContentSnapshot = { id: string; kind: 'article' | 'settings'; target_id: string | null; title: string; created_at: string; actor_name: string | null };
-const authApi = 'https://nekopress-auth.wangshirufengabc.workers.dev';
-
 function Admin(props: {
   posts: Post[];
   initialSettings: SiteSettings;
@@ -1301,13 +1169,8 @@ function Admin(props: {
       deferUpdate(() => setReady(true));
       return;
     }
-    fetch(`${authApi}/api/auth/me`, {
-      headers: { Authorization: `Bearer ${saved}` },
-      cache: 'no-store',
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error();
-        const result = (await response.json()) as { user: AdminUser };
+    authClient.me(saved)
+      .then((result) => {
         setAuthToken(saved);
         setUser(result.user);
       })
@@ -1320,18 +1183,7 @@ function Admin(props: {
     setAuthBusy(true);
     setAuthMessage('');
     try {
-      const response = await fetch(`${authApi}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-      const result = (await response.json()) as {
-        token?: string;
-        user?: AdminUser;
-        error?: string;
-      };
-      if (!response.ok || !result.token || !result.user)
-        throw new Error(result.error || '登录失败。');
+      const result = await authClient.login(username, password);
       sessionStorage.setItem('nekopress-auth-token', result.token);
       setAuthToken(result.token);
       setUser(result.user);
@@ -1347,10 +1199,7 @@ function Admin(props: {
 
   async function logout() {
     if (authToken)
-      void fetch(`${authApi}/api/auth/logout`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
+      void authClient.logout(authToken).catch(() => { /* local sign-out still succeeds */ });
     sessionStorage.removeItem('nekopress-auth-token');
     setAuthToken('');
     setUser(null);
@@ -1439,16 +1288,7 @@ function PasswordChange({
     setBusy(true);
     setMessage('');
     try {
-      const response = await fetch(`${authApi}/api/auth/password`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ currentPassword, newPassword }),
-      });
-      const result = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(result.error || '密码修改失败。');
+      await authClient.changePassword(token, currentPassword, newPassword);
       onComplete();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '密码修改失败。');
@@ -1532,16 +1372,7 @@ function AccountSecurity({
     }
     setBusy(true);
     try {
-      const response = await fetch(`${authApi}/api/auth/password`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ currentPassword, newPassword }),
-      });
-      const result = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(result.error || '密码修改失败。');
+      await authClient.changePassword(token, currentPassword, newPassword);
       onComplete();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '密码修改失败。');
@@ -1794,36 +1625,7 @@ function AdminWorkspace({
   }, []);
 
   async function contentRequest<T>(path: string, options: RequestInit = {}) {
-    let response: Response;
-    try {
-      response = await fetch(`${authApi}${path}`, {
-        ...options,
-        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json', ...options.headers },
-        cache: 'no-store',
-      });
-    } catch {
-      throw new Error('网络连接失败。草稿仍保存在本机，请检查网络后重试。');
-    }
-    let result: T & { error?: string };
-    try { result = (await response.json()) as T & { error?: string }; }
-    catch { result = {} as T & { error?: string }; }
-    if (!response.ok) {
-      const fallback = response.status === 401
-        ? '登录已失效，请重新登录。'
-        : response.status === 403
-          ? '当前账号没有执行此操作的权限。'
-          : response.status === 409
-            ? '线上内容已更新，请刷新后再试。'
-            : response.status === 413
-              ? '提交的文件或内容超过大小限制。'
-              : response.status === 429
-                ? '操作过于频繁，请稍后再试。'
-                : response.status >= 500
-                  ? '发布服务暂时不可用，请稍后重试。'
-                  : '操作未完成，请检查填写内容。';
-      throw new Error(result.error || fallback);
-    }
-    return result;
+    return createContentClient(authToken).request<T>(path, options);
   }
   async function syncServerArticles(showResult = false) {
     try {
@@ -3648,6 +3450,7 @@ function AdminWorkspace({
                 </section>
                 <SiteHealth
                   run={lastRun}
+                  token={authToken}
                   onRefresh={() => void latestRun().then(setLastRun)}
                 />
               </div>
@@ -4990,7 +4793,7 @@ function AdminWorkspace({
                       <h2>基础信息</h2>
                       <p>决定站点名称、默认署名与内容基调。</p>
                     </div>
-                    <span className="settings-scope global">全站共享</span>
+                    <ScopeBadge scope="global" />
                   </div>
                   <div className="settings-grid">
                     <Field label="博客名称">
@@ -5046,7 +4849,7 @@ function AdminWorkspace({
                       <h2>首页展示</h2>
                       <p>控制访客进入网站后首先看到的内容。</p>
                     </div>
-                    <span className="settings-scope global">全站共享</span>
+                    <ScopeBadge scope="global" />
                   </div>
                   <Field label="首页主标题">
                     <Input
@@ -5097,7 +4900,7 @@ function AdminWorkspace({
                       <h2>链接与页脚</h2>
                       <p>补充作者主页和全站版权信息。</p>
                     </div>
-                    <span className="settings-scope global">全站共享</span>
+                    <ScopeBadge scope="global" />
                   </div>
                   <div className="settings-grid">
                     <Field label="GitHub 链接">
@@ -5139,7 +4942,7 @@ function AdminWorkspace({
                       <h2>写作偏好</h2>
                       <p>跟随当前账号同步，不会影响其他用户和网站前台。</p>
                     </div>
-                    <span className="settings-scope personal">账号同步</span>
+                    <ScopeBadge scope="personal" />
                   </div>
                   <div className="settings-grid preference-grid">
                     <Field label="默认预览尺寸">
@@ -5164,7 +4967,7 @@ function AdminWorkspace({
                       <h2>网络图库</h2>
                       <p>Pexels Key 仅保存在当前浏览器，不会提交到 GitHub。</p>
                     </div>
-                    <span className="settings-scope device">当前设备</span>
+                    <ScopeBadge scope="device" />
                   </div>
                   <Field label="Pexels API Key">
                     <div className="local-key-field">
@@ -5794,22 +5597,11 @@ function UserManagement({
     password: '',
   });
   const request = async (path: string, options: RequestInit = {}) => {
-    const response = await fetch(`${authApi}${path}`, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-      cache: 'no-store',
-    });
-    const result = (await response.json()) as {
+    return apiRequest<{
       users?: AdminUser[];
       error?: string;
       reauth?: boolean;
-    };
-    if (!response.ok) throw new Error(result.error || '操作失败。');
-    return result;
+    }>(path, options, token);
   };
   const load = async () => {
     setLoading(true);
@@ -6163,18 +5955,5 @@ function loadBrowserImage(file: File) {
 }
 
 function Footer({ settings }: { settings?: SiteSettings }) {
-  return (
-    <footer className="footer site-width">
-      <span>
-        {settings?.copyright ?? `© 2026 ${settings?.name ?? 'NekoPress'}`}
-      </span>
-      {settings?.github ? (
-        <a href={settings.github} target="_blank" rel="noreferrer">
-          GitHub
-        </a>
-      ) : (
-        <span>Published with GitHub Pages</span>
-      )}
-    </footer>
-  );
+  return <SiteFooter settings={settings} />;
 }
