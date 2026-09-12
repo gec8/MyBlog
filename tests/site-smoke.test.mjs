@@ -73,7 +73,7 @@ test("后台编辑和发布入口存在", () => {
   assert.match(css, /media-actions/);
   assert.match(draftUtils, /filterAndSortDrafts/);
   assert.match(source, /meaningfulDraft/);
-  assert.match(source, /登录会话已失效/);
+  assert.match(source, /发布凭证已失效/);
   assert.match(source, /onPostsChange/);
   assert.match(source, /function applyPosts/);
   assert.match(source, /function openSavedDraft/);
@@ -120,6 +120,8 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(source, /填写账号和登录密码/);
   assert.match(source, /新用户默认使用“作者”权限/);
   assert.match(source, /function UserManagement/);
+  assert.match(source, /配置发布权限/);
+  assert.match(source, /不影响后台账号登录/);
   assert.match(source, /deleteTarget/);
   assert.match(source, /删除用户？/);
   assert.match(source, /nekopress-auth-token/);

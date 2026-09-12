@@ -1612,8 +1612,8 @@ function AdminWorkspace({
   onAuthLogout: () => void;
 }) {
   const [config, setConfig] = useState<RepoConfig>({
-    owner: '',
-    repo: '',
+    owner: 'gec8',
+    repo: 'MyBlog',
     branch: 'main',
   });
   const [token, setToken] = useState('');
@@ -1637,7 +1637,7 @@ function AdminWorkspace({
     'newest',
   );
   const [siteSettings, setSiteSettings] = useState(initialSettings);
-  const [connected, setConnected] = useState(false);
+  const [connected, setConnected] = useState(true);
   const [mobilePreview, setMobilePreview] = useState(false);
   const [previewSize, setPreviewSize] = useState<
     'desktop' | 'tablet' | 'mobile'
@@ -1739,9 +1739,8 @@ function AdminWorkspace({
                 if (!response.ok) {
                   sessionStorage.removeItem('nekopress-token');
                   setToken('');
-                  setConnected(false);
                   setState('error');
-                  setMessage('登录会话已失效，请重新连接仓库。');
+                  setMessage('GitHub 发布凭证已失效，可继续编辑草稿，发布前请重新配置。');
                 }
               })
               .catch(() => {
@@ -3083,7 +3082,11 @@ function AdminWorkspace({
       !draft.content.trim()
     ) {
       setState('error');
-      setMessage('请补全仓库信息、令牌、标题与正文。');
+      setMessage(
+        !token
+          ? '文章已保留在草稿中，请先配置 GitHub 发布权限再发布。'
+          : '请补全仓库信息、标题与正文。',
+      );
       return;
     }
     if (slugDuplicate) {
@@ -3241,11 +3244,10 @@ function AdminWorkspace({
           Neko<span>Press</span>
         </button>
         <div>
-          {connected && (
-            <span className="connected-chip">
-              <CheckCircle2 /> 已连接 {config.owner}/{config.repo}
-            </span>
-          )}
+          <span className={token ? 'connected-chip' : 'connected-chip is-limited'}>
+            {token ? <CheckCircle2 /> : <LockKeyhole />}
+            {token ? `已连接 ${config.owner}/${config.repo}` : '编辑模式'}
+          </span>
           <Button variant="ghost" onClick={() => go()}>
             <LogOut />
             退出后台
@@ -3265,7 +3267,7 @@ function AdminWorkspace({
               再专心写作。
             </h1>
             <span>
-              令牌只保存在当前标签页会话中，刷新页面不会退出，关闭标签页后自动清除。
+              此处仅配置文章发布权限，不影响后台账号登录。令牌只保存在当前标签页中。
             </span>
             <ol>
               <li>
@@ -3375,6 +3377,9 @@ function AdminWorkspace({
               )}{' '}
               {state === 'connecting' ? '正在验证…' : '连接并开始写作'}
             </Button>
+            <button className="connect-later" onClick={() => setConnected(true)}>
+              暂不配置，返回后台
+            </button>
           </section>
         </main>
       ) : (
@@ -3446,9 +3451,9 @@ function AdminWorkspace({
               <div className="connection-card">
                 <span>
                   <i />
-                  仓库已连接
+                  {token ? '仓库已连接' : '编辑模式'}
                 </span>
-                <b>{config.branch}</b>
+                <b>{config.owner}/{config.repo} · {config.branch}</b>
                 <p>
                   <LockKeyhole />
                   {currentUser.displayName} ·{' '}
@@ -3459,6 +3464,10 @@ function AdminWorkspace({
                       : '作者'}
                 </p>
               </div>
+              <button onClick={() => setConnected(false)}>
+                <GitBranch />
+                {token ? '更新发布权限' : '配置发布权限'}
+              </button>
               <button onClick={onAuthLogout}>
                 <LogOut />
                 退出账号
