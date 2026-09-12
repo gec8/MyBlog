@@ -70,6 +70,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { SiteHealth } from '@/components/admin/site-health';
 import { ScopeBadge } from '@/components/admin/design-system';
 import { SiteFooter, SiteHeader } from '@/components/frontend/site-shell';
+import { articleHref, assetHref, homeHref } from '@/lib/site-paths';
 import { authClient } from '@/services/auth/client';
 import { createContentClient } from '@/services/content/client';
 import { apiRequest } from '@/services/api-client';
@@ -117,6 +118,14 @@ function readRoute(): Route {
 }
 
 function go(path = '') {
+  if (path.startsWith('post/')) {
+    window.location.assign(articleHref(path.slice(5)));
+    return;
+  }
+  if (!path) {
+    window.location.assign(homeHref());
+    return;
+  }
   window.location.hash = path ? `#/${path}` : '#';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -550,7 +559,7 @@ function Article({
             {post.coverImage && (
               <>
                 <img
-                  src={post.coverImage}
+                  src={assetHref(post.coverImage)}
                   alt=""
                   style={{
                     objectPosition: post.coverPosition || '50% 50%',
@@ -592,7 +601,7 @@ function Article({
                 setLightbox(
                   Math.max(
                     0,
-                    bodyImages.findIndex((item) => item.src === src),
+                    bodyImages.findIndex((item) => assetHref(item.src) === src),
                   ),
                 )
               }
@@ -730,7 +739,7 @@ function Article({
           )}
           <figure onMouseDown={(event) => event.stopPropagation()}>
             <img
-              src={bodyImages[lightbox].src}
+              src={assetHref(bodyImages[lightbox].src)}
               alt={bodyImages[lightbox].alt}
             />
             <figcaption>
@@ -1028,7 +1037,7 @@ function Markdown({
         <AudioPlayer
           key={index}
           title={audio[1]?.trim() || '文章音频'}
-          src={audio[2]}
+          src={assetHref(audio[2])}
         />,
       );
     } else if (/^!\[[^\]]*\]\([^)]+\)$/.test(line)) {
@@ -1036,16 +1045,16 @@ function Markdown({
       blocks.push(
         <figure key={index}>
           <img
-            src={image[2]}
+            src={assetHref(image[2])}
             alt={image[1]}
             loading="lazy"
             decoding="async"
             tabIndex={onImageOpen ? 0 : undefined}
             role={onImageOpen ? 'button' : undefined}
-            onClick={() => onImageOpen?.(image[2])}
+            onClick={() => onImageOpen?.(assetHref(image[2]))}
             onKeyDown={(event) => {
               if (onImageOpen && (event.key === 'Enter' || event.key === ' '))
-                onImageOpen(image[2]);
+                onImageOpen(assetHref(image[2]));
             }}
             onError={(event) => {
               event.currentTarget.hidden = true;
@@ -5875,6 +5884,15 @@ function fileToBase64(file: File) {
     reader.onerror = () => reject(new Error('无法读取图片文件。'));
     reader.readAsDataURL(file);
   });
+}
+
+export function AdminEntry({ posts, initialSettings }: { posts: Post[]; initialSettings: SiteSettings }) {
+  const [currentPosts, setCurrentPosts] = useState(posts);
+  return <Admin posts={currentPosts} initialSettings={initialSettings} onPostsChange={setCurrentPosts} />;
+}
+
+export function PublicArticle({ post, posts, settings }: { post: Post; posts: Post[]; settings: SiteSettings }) {
+  return <Article post={post} posts={posts} settings={settings} />;
 }
 
 async function fileHash(file: File) {

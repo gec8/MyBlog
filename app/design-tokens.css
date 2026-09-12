@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light dark;
   --paper: #fffaf8;
   --ink: #17171c;
   --muted: #77747c;
@@ -21,4 +22,16 @@
   --shadow-md: 0 18px 55px rgba(35, 25, 30, 0.09);
   --focus-ring: 0 0 0 3px rgba(240, 79, 100, 0.18);
   --control-height: 42px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #141316;
+    --ink: #f5f1f3;
+    --muted: #bbb3b9;
+    --line: rgba(255, 255, 255, 0.12);
+    --panel: rgba(35, 32, 37, 0.9);
+    --shadow-sm: 0 6px 20px rgba(0, 0, 0, 0.24);
+    --shadow-md: 0 18px 55px rgba(0, 0, 0, 0.34);
+  }
 }

@@ -18,5 +18,6 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="zh-CN"><body className={`${geistSans.variable} ${geistMono.variable}`}>{children}<noscript><main className="load-fallback"><b>NekoPress</b><p>请开启浏览器的 JavaScript 后重新访问。</p></main></noscript></body></html>;
+  const basePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? '').replace(/\/$/, '');
+  return <html lang="zh-CN"><head><link rel="preload" as="image" type="image/webp" href={`${basePath}/hero-1200.webp`} /><link rel="alternate" type="application/rss+xml" title="NekoPress RSS" href={`${basePath}/rss.xml`} /></head><body className={`${geistSans.variable} ${geistMono.variable}`}>{children}<noscript><main className="load-fallback"><b>NekoPress</b><p>请开启浏览器的 JavaScript 后重新访问。</p></main></noscript></body></html>;
 }

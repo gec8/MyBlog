@@ -43,8 +43,22 @@ test('首页和文章在桌面及手机均可打开且无横向溢出', async ({
   const firstArticle = page.locator('.post-card').first();
   await expect(firstArticle).toBeVisible();
   await firstArticle.locator('.card-hit').click();
-  await page.waitForURL(/#\/post\//);
+  await page.waitForURL(/\/post\//);
   await expect(page.locator('.article-body')).toBeVisible();
+});
+
+test('真实文章地址、键盘导航与深色模式正常', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+  await page.goto('/post/welcome-to-nekopress');
+  await expect(page).toHaveTitle(/把灵感写成可以反复抵达的地方/);
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/post\/welcome-to-nekopress\/?$/);
+  expect(await page.locator('script[type="application/ld+json"]').evaluate((element) => element.textContent)).toContain('BlogPosting');
+  const skipLink = page.getByRole('link', { name: '跳到文章正文' });
+  await skipLink.focus();
+  await expect(skipLink).toBeFocused();
+  const colors = await page.locator('body').evaluate((element) => ({ background: getComputedStyle(element).backgroundColor, color: getComputedStyle(element).color }));
+  expect(colors.background).not.toBe('rgb(255, 250, 248)');
+  expect(colors.color).toBe('rgb(245, 241, 243)');
 });
 
 test('新用户可以登录，作者权限不会显示用户与全站设置', async ({ page }) => {

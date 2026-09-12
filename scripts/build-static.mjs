@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 
 const outputDir = resolve("dist/client");
 const packageInfo = JSON.parse(readFileSync(resolve("package.json"), "utf8"));
+const posts = JSON.parse(readFileSync(resolve("data/posts.json"), "utf8"));
+const settings = JSON.parse(readFileSync(resolve("data/settings.json"), "utf8"));
 rmSync(resolve("dist"), { recursive: true, force: true });
 
 const cli = resolve("node_modules/vinext/dist/cli.js");
@@ -72,4 +74,17 @@ if (result.status && process.platform === "win32") {
   console.warn("Static export verified; ignoring Vinext's Windows libuv shutdown warning.");
 }
 writeFileSync(resolve(outputDir, "build-info.json"), JSON.stringify({ version: packageInfo.version, commit: process.env.GITHUB_SHA ?? "local", builtAt: new Date().toISOString() }, null, 2));
+
+// Metadata routes are not exported by every Vinext release, so emit portable
+// feed files here as a final, framework-independent build step.
+const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+const escapeXml = (value) => String(value).replace(/[<>&'\"]/g, (char) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[char]);
+const articleUrl = (post) => `${siteUrl}/post/${encodeURIComponent(post.slug)}`;
+const sitemapEntries = [
+  `<url><loc>${escapeXml(`${siteUrl}/`)}</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>`,
+  ...posts.map((post) => `<url><loc>${escapeXml(articleUrl(post))}</loc><lastmod>${escapeXml(post.date)}</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>`),
+].join("");
+writeFileSync(resolve(outputDir, "sitemap.xml"), `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${sitemapEntries}</urlset>`);
+const rssItems = posts.map((post) => `<item><title>${escapeXml(post.title)}</title><link>${escapeXml(articleUrl(post))}</link><guid isPermaLink="true">${escapeXml(articleUrl(post))}</guid><description>${escapeXml(post.excerpt)}</description><pubDate>${new Date(`${post.date}T00:00:00Z`).toUTCString()}</pubDate><category>${escapeXml(post.category)}</category></item>`).join("");
+writeFileSync(resolve(outputDir, "rss.xml"), `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>${escapeXml(settings.name)}</title><link>${escapeXml(`${siteUrl}/`)}</link><description>${escapeXml(settings.description)}</description><language>zh-CN</language><lastBuildDate>${new Date().toUTCString()}</lastBuildDate>${rssItems}</channel></rss>`);
 process.exit(0);

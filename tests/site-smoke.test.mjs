@@ -12,6 +12,8 @@ const monitoring = readFileSync("services/monitoring/client.ts", "utf8");
 const authSchema = readFileSync("auth-worker/migrations/0001_users.sql", "utf8");
 const maintenanceSchema = readFileSync("auth-worker/migrations/0003_drafts_backups_preferences_media.sql", "utf8");
 const monitoringSchema = readFileSync("auth-worker/migrations/0004_error_monitoring.sql", "utf8");
+const frontSource = readFileSync("components/frontend/blog-front.tsx", "utf8");
+const routerSource = readFileSync("components/frontend/blog-router.tsx", "utf8");
 
 test("首页与文章路由保持可用", () => {
   assert.match(source, /view: ['"]home['"]/);
@@ -124,6 +126,26 @@ test("移动端限制横向溢出", () => {
 test("构建产物包含首页与健康信息", () => {
   assert.ok(existsSync("dist/client/index.html"));
   assert.ok(existsSync("dist/client/build-info.json"));
+  assert.ok(existsSync("dist/client/sitemap.xml"));
+  assert.ok(existsSync("dist/client/rss.xml"));
+  assert.ok(existsSync("dist/client/post/welcome-to-nekopress.html"));
+  const homeHtml = readFileSync("dist/client/index.html", "utf8");
+  const articleHtml = readFileSync("dist/client/post/welcome-to-nekopress.html", "utf8");
+  assert.doesNotMatch(homeHtml, /blog-app-[^\"]+\.js/);
+  assert.match(articleHtml, /BlogPosting/);
+  assert.match(articleHtml, /rel="canonical"/);
+});
+
+test("前台性能、真实链接和无障碍模式完整", () => {
+  assert.match(routerSource, /lazy\(\(\) => import\(['"]@\/components\/blog-app['"]\)/);
+  assert.match(frontSource, /articleHref\(post\.slug\)/);
+  assert.match(frontSource, /srcSet=/);
+  assert.match(frontSource, /loading=\{priority \? ['"]eager['"] : ['"]lazy['"]\}/);
+  assert.match(frontSource, /aria-live="polite"/);
+  assert.match(css, /prefers-color-scheme: dark/);
+  assert.match(css, /prefers-reduced-motion: reduce/);
+  assert.match(css, /forced-colors: active/);
+  assert.match(css, /skip-link/);
 });
 
 test("后台账号、权限与安全会话完整", () => {
