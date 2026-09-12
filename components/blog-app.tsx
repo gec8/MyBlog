@@ -1318,6 +1318,28 @@ function PasswordChange({ token, onComplete }: { token: string; onComplete: () =
   return <div className="admin-login"><section><div className="login-brand"><span><KeyRound /></span><div><small>SECURITY CHECK</small><h1>设置新密码</h1><p>临时密码只能使用一次，请先设置自己的密码。</p></div></div><form onSubmit={submit}><Field label="当前临时密码"><Input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></Field><Field label="新密码"><Input type="password" minLength={6} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="至少 6 位，包含字母和数字" required /></Field>{message && <output className="status-message error">{message}</output>}<Button type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <Save />}{busy ? '正在保存…' : '保存新密码'}</Button></form></section></div>;
 }
 
+function AccountSecurity({ token, user, onComplete }: { token: string; user: AdminUser; onComplete: () => void }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setMessage('');
+    if (newPassword !== confirmPassword) { setMessage('两次输入的新密码不一致。'); return; }
+    if (newPassword.length < 6 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) { setMessage('新密码至少 6 位，并同时包含字母和数字。'); return; }
+    setBusy(true);
+    try {
+      const response = await fetch(`${authApi}/api/auth/password`, { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword, newPassword }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || '密码修改失败。');
+      onComplete();
+    } catch (error) { setMessage(error instanceof Error ? error.message : '密码修改失败。'); }
+    finally { setBusy(false); }
+  }
+  return <div className="account-security"><section className="manage-panel"><header><span><KeyRound /></span><div><h2>修改登录密码</h2><p>当前账号：{user.displayName}（@{user.username}）</p></div></header><form onSubmit={submit}><Field label="当前密码"><Input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></Field><Field label="新密码"><Input type="password" minLength={6} autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="至少 6 位，包含字母和数字" required /></Field><Field label="确认新密码"><Input type="password" minLength={6} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></Field>{message && <output className="status-message error">{message}</output>}<div className="account-security-actions"><small>修改后所有设备上的旧登录都会失效。</small><Button type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <Save />}{busy ? '正在修改…' : '修改密码'}</Button></div></form></section></div>;
+}
+
 function AdminWorkspace({
   posts,
   initialSettings,
@@ -1345,7 +1367,7 @@ function AdminWorkspace({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [panel, setPanel] = useState<
-    'dashboard' | 'posts' | 'editor' | 'media' | 'drafts' | 'settings' | 'users'
+    'dashboard' | 'posts' | 'editor' | 'media' | 'drafts' | 'settings' | 'users' | 'account'
   >('dashboard');
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('全部');
@@ -3157,6 +3179,13 @@ function AdminWorkspace({
                   用户
                 </button>
               )}
+              <button
+                className={panel === 'account' ? 'active' : ''}
+                onClick={() => setPanel('account')}
+              >
+                <KeyRound />
+                账号
+              </button>
             </nav>
             <div className="sidebar-bottom">
               <div className="connection-card">
@@ -3191,6 +3220,8 @@ function AdminWorkspace({
                         ? 'MEDIA'
                         : panel === 'users'
                           ? 'USERS'
+                          : panel === 'account'
+                            ? 'SECURITY'
                         : panel === 'drafts'
                           ? 'DRAFTS'
                           : panel === 'settings'
@@ -3206,6 +3237,8 @@ function AdminWorkspace({
                         ? '媒体资源'
                         : panel === 'users'
                           ? '用户管理'
+                          : panel === 'account'
+                            ? '账号安全'
                         : panel === 'drafts'
                           ? '本机草稿'
                           : panel === 'settings'
@@ -3232,7 +3265,7 @@ function AdminWorkspace({
                     {focusMode ? '退出专注' : '专注模式'}
                   </Button>
                 )}
-                {panel !== 'settings' && panel !== 'users' && (
+                {panel !== 'settings' && panel !== 'users' && panel !== 'account' && (
                   <Button onClick={newPost}>
                     <FilePlus2 />
                     新文章
@@ -4612,6 +4645,10 @@ function AdminWorkspace({
 
             {panel === 'users' && currentUser.role === 'owner' && (
               <UserManagement token={authToken} currentUser={currentUser} />
+            )}
+
+            {panel === 'account' && (
+              <AccountSecurity token={authToken} user={currentUser} onComplete={onAuthLogout} />
             )}
 
             {panel === 'settings' && (
