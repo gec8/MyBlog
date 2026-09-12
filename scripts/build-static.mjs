@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
@@ -67,6 +67,29 @@ if (existsSync(cssDir)) {
       }
     };
     updateReferences(outputDir);
+  }
+}
+
+// Vinext exports non-ASCII dynamic routes with percent-encoded filenames.
+// GitHub Pages decodes the request path before resolving the file, so keep a
+// decoded filename alongside the encoded one. This preserves existing links
+// and makes Chinese (and other Unicode) article slugs work reliably.
+const postOutputDir = resolve(outputDir, "post");
+if (existsSync(postOutputDir)) {
+  for (const fileName of readdirSync(postOutputDir)) {
+    if (!/%[0-9a-f]{2}/i.test(fileName)) continue;
+    try {
+      const decodedName = decodeURIComponent(fileName);
+      if (
+        decodedName !== fileName &&
+        !decodedName.includes("/") &&
+        !decodedName.includes("\\")
+      ) {
+        copyFileSync(resolve(postOutputDir, fileName), resolve(postOutputDir, decodedName));
+      }
+    } catch {
+      console.warn(`Skipped invalid encoded article filename: ${fileName}`);
+    }
   }
 }
 

@@ -129,6 +129,10 @@ test("构建产物包含首页与健康信息", () => {
   assert.ok(existsSync("dist/client/sitemap.xml"));
   assert.ok(existsSync("dist/client/rss.xml"));
   assert.ok(existsSync("dist/client/post/welcome-to-nekopress.html"));
+  assert.ok(existsSync("dist/client/post/%E7%A7%91%E6%8A%80.html"));
+  assert.ok(existsSync("dist/client/post/科技.html"));
+  assert.ok(existsSync("dist/client/post/%E8%AF%97%E6%AD%8C.html"));
+  assert.ok(existsSync("dist/client/post/诗歌.html"));
   const homeHtml = readFileSync("dist/client/index.html", "utf8");
   const articleHtml = readFileSync("dist/client/post/welcome-to-nekopress.html", "utf8");
   assert.doesNotMatch(homeHtml, /blog-app-[^\"]+\.js/);
