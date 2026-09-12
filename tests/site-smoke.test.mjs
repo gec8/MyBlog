@@ -117,7 +117,7 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(source, /所有设备上的旧登录都会失效/);
   assert.match(source, /修改用户密码/);
   assert.match(source, /passwordTarget/);
-  assert.match(source, /填写账号和初始密码/);
+  assert.match(source, /填写账号和登录密码/);
   assert.match(source, /新用户默认使用“作者”权限/);
   assert.match(source, /function UserManagement/);
   assert.match(source, /deleteTarget/);
@@ -131,6 +131,7 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(authWorker, /token_hash/);
   assert.match(authWorker, /password-reset/);
   assert.match(authWorker, /reauth/);
+  assert.match(authWorker, /mustChangePassword: false/);
   assert.match(authWorker, /async function deleteUser/);
   assert.match(authWorker, /不能删除当前登录账号/);
   assert.match(authSchema, /CREATE TABLE IF NOT EXISTS users/);

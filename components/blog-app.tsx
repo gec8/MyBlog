@@ -5733,7 +5733,7 @@ function UserManagement({
       });
       setForm({ username: '', password: '' });
       setFormVersion((version) => version + 1);
-      setMessage('用户已添加，首次登录需要修改密码。');
+      setMessage('用户已添加，可以使用所设密码直接登录。');
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '添加失败。');
@@ -5761,7 +5761,7 @@ function UserManagement({
       const result = await request(`/api/users/${encodeURIComponent(passwordTarget.id)}`, { method: 'PATCH', body: JSON.stringify({ password: newPassword }) });
       setPasswordTarget(null); setNewPassword(''); setConfirmPassword('');
       if (result.reauth) { onReauth(); return; }
-      setMessage(`已修改 ${passwordTarget.displayName} 的密码，对方下次登录时需要确认新密码。`);
+      setMessage(`已修改 ${passwordTarget.displayName} 的密码，新密码已立即生效。`);
       await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : '密码修改失败。'); }
   }
@@ -5783,7 +5783,7 @@ function UserManagement({
         <header>
           <div>
             <h2>添加用户</h2>
-            <p>填写账号和初始密码，新用户默认使用“作者”权限。</p>
+            <p>填写账号和登录密码，新用户默认使用“作者”权限。</p>
           </div>
           <Users />
         </header>
@@ -5800,7 +5800,7 @@ function UserManagement({
               required
             />
           </Field>
-          <Field label="初始密码">
+          <Field label="登录密码">
             <Input
               type="password"
               name={`new-password-${formVersion}`}
@@ -5849,7 +5849,6 @@ function UserManagement({
                   {user.lastLoginAt
                     ? `最近登录 ${new Date(user.lastLoginAt).toLocaleString('zh-CN')}`
                     : '尚未登录'}
-                  {user.mustChangePassword ? ' · 待修改密码' : ''}
                 </small>
               </div>
               <select

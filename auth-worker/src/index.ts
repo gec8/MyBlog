@@ -413,7 +413,7 @@ async function createUser(
   if (!/^[a-zA-Z0-9_.-]{3,32}$/.test(username))
     throw new HttpError(400, '账号格式不正确。');
   if (!validPassword(password))
-    throw new HttpError(400, '临时密码至少 6 位，并同时包含字母和数字。');
+    throw new HttpError(400, '登录密码至少 6 位，并同时包含字母和数字。');
   if (!['owner', 'editor', 'author'].includes(role))
     throw new HttpError(400, '用户角色不正确。');
   const secured = await passwordHash(password);
@@ -421,7 +421,7 @@ async function createUser(
   const timestamp = now();
   try {
     await env.DB.prepare(
-      'INSERT INTO users (id, username, display_name, role, password_hash, password_salt, password_iterations, must_change_password, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)',
+      'INSERT INTO users (id, username, display_name, role, password_hash, password_salt, password_iterations, must_change_password, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)',
     )
       .bind(
         userId,
@@ -447,7 +447,7 @@ async function createUser(
         displayName,
         role,
         enabled: true,
-        mustChangePassword: true,
+        mustChangePassword: false,
       },
     },
     201,
@@ -486,13 +486,12 @@ async function updateUser(
   if (newPassword) {
     const secured = await passwordHash(newPassword);
     await env.DB.prepare(
-      'UPDATE users SET password_hash = ?, password_salt = ?, password_iterations = ?, must_change_password = ?, updated_at = ? WHERE id = ?',
+      'UPDATE users SET password_hash = ?, password_salt = ?, password_iterations = ?, must_change_password = 0, updated_at = ? WHERE id = ?',
     )
       .bind(
         secured.hash,
         secured.salt,
         secured.rounds,
-        target.id === actor.id ? 0 : 1,
         now(),
         userId,
       )
