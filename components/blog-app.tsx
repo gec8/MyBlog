@@ -5687,9 +5687,7 @@ function UserManagement({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [form, setForm] = useState({
     username: '',
-    displayName: '',
     password: '',
-    role: 'author' as AdminUser['role'],
   });
   const request = async (path: string, options: RequestInit = {}) => {
     const response = await fetch(`${authApi}${path}`, {
@@ -5731,7 +5729,7 @@ function UserManagement({
         method: 'POST',
         body: JSON.stringify(form),
       });
-      setForm({ username: '', displayName: '', password: '', role: 'author' });
+      setForm({ username: '', password: '' });
       setMessage('用户已添加，首次登录需要修改密码。');
       await load();
     } catch (error) {
@@ -5770,7 +5768,7 @@ function UserManagement({
         <header>
           <div>
             <h2>添加用户</h2>
-            <p>创建账号并分配权限，临时密码首次登录后必须修改。</p>
+            <p>填写账号和初始密码，新用户默认使用“作者”权限。</p>
           </div>
           <Users />
         </header>
@@ -5785,32 +5783,7 @@ function UserManagement({
               required
             />
           </Field>
-          <Field label="显示名称">
-            <Input
-              value={form.displayName}
-              onChange={(event) =>
-                setForm({ ...form, displayName: event.target.value })
-              }
-              placeholder="作者名称"
-              required
-            />
-          </Field>
-          <Field label="用户角色">
-            <select
-              value={form.role}
-              onChange={(event) =>
-                setForm({
-                  ...form,
-                  role: event.target.value as AdminUser['role'],
-                })
-              }
-            >
-              <option value="author">作者</option>
-              <option value="editor">编辑</option>
-              <option value="owner">超级管理员</option>
-            </select>
-          </Field>
-          <Field label="临时密码">
+          <Field label="初始密码">
             <Input
               type="password"
               minLength={6}
