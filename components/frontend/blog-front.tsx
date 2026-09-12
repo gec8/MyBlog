@@ -2,10 +2,11 @@
 'use client';
 
 import { ArrowRight, ArrowUpRight, Clock3, Search, Sparkles, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { SiteFooter, SiteHeader } from '@/components/frontend/site-shell';
 import { articleHref, assetHref } from '@/lib/site-paths';
 import type { Post, SiteSettings } from '@/types/blog';
+import { installGlobalErrorMonitoring } from '@/services/monitoring/client';
 
 function formatDate(value: string) {
   try {
@@ -19,12 +20,12 @@ function coverTone(category: string) {
   return 'sage';
 }
 
-function PostCard({ post, featured = false, priority = false }: { post: Post; featured?: boolean; priority?: boolean }) {
+function PostCard({ post, featured = false }: { post: Post; featured?: boolean }) {
   return <article className={`post-card ${featured ? 'featured' : ''}`}>
     <a className="card-hit" href={articleHref(post.slug)} aria-label={`阅读：${post.title}`}>
       <div className={`post-cover ${coverTone(post.category)} ${post.coverImage ? 'has-image' : ''}`}>
         {post.coverImage && <>
-          <img src={assetHref(post.coverImage)} alt="" width="720" height="420" style={{ objectPosition: post.coverPosition || '50% 50%', filter: `brightness(${post.coverBrightness ?? 100}%)` }} loading={priority ? 'eager' : 'lazy'} decoding="async" fetchPriority={priority ? 'high' : 'auto'} />
+          <img src={assetHref(post.coverThumbnail || post.coverImage)} alt="" width="640" height="373" style={{ objectPosition: post.coverPosition || '50% 50%', filter: `brightness(${post.coverBrightness ?? 100}%)` }} loading="lazy" decoding="async" fetchPriority="low" />
           <i className="cover-overlay" style={{ opacity: (post.coverOverlay ?? 12) / 100 }} />
         </>}
         <span>{post.category}</span><b>{post.date.slice(5).replace('-', ' / ')}</b>
@@ -46,6 +47,11 @@ export function BlogFront({ posts, settings }: { posts: Post[]; settings: SiteSe
   const [visibleCount, setVisibleCount] = useState(settings.postsPerPage || 9);
   const categories = useMemo(() => ['全部', ...Array.from(new Set(posts.map((post) => post.category)))], [posts]);
   const filtered = useMemo(() => posts.filter((post) => (category === '全部' || post.category === category) && `${post.title} ${post.excerpt} ${post.author}`.toLowerCase().includes(query.toLowerCase())), [posts, category, query]);
+  useEffect(() => installGlobalErrorMonitoring(), []);
+  useEffect(() => {
+    document.documentElement.dataset.appReady = 'true';
+    return () => { delete document.documentElement.dataset.appReady; };
+  }, []);
 
   return <>
     <a className="skip-link" href="#main-content">跳到主要内容</a>
@@ -66,7 +72,7 @@ export function BlogFront({ posts, settings }: { posts: Post[]; settings: SiteSe
           {categories.map((item) => <button className={category === item ? 'active' : ''} aria-pressed={category === item} key={item} onClick={() => { setCategory(item); setVisibleCount(settings.postsPerPage || 9); }}>{item}</button>)}
         </div><label><Search aria-hidden="true" /><input value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(settings.postsPerPage || 9); }} placeholder="搜索文章" aria-label="搜索文章" />{query && <button onClick={() => setQuery('')} aria-label="清空搜索"><X /></button>}</label></div>
         <p className="sr-only" aria-live="polite">找到 {filtered.length} 篇文章</p>
-        {filtered.length ? <><div className="post-grid">{filtered.slice(0, visibleCount).map((post, index) => <PostCard post={post} featured={index === 0 && !query && category === '全部'} priority={index < 2} key={post.id} />)}</div>
+        {filtered.length ? <><div className="post-grid">{filtered.slice(0, visibleCount).map((post, index) => <PostCard post={post} featured={index === 0 && !query && category === '全部'} key={post.id} />)}</div>
           {visibleCount < filtered.length && <div className="load-more"><button onClick={() => setVisibleCount((count) => count + (settings.postsPerPage || 9))}>加载更多 <ArrowRight /></button></div>}</> :
           <div className="front-empty"><Search /><h3>没有找到相关文章</h3><p>换一个关键词或分类试试看。</p><button onClick={() => { setQuery(''); setCategory('全部'); }}>查看全部文章</button></div>}
       </section>

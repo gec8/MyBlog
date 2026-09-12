@@ -13,7 +13,7 @@ const authSchema = readFileSync("auth-worker/migrations/0001_users.sql", "utf8")
 const maintenanceSchema = readFileSync("auth-worker/migrations/0003_drafts_backups_preferences_media.sql", "utf8");
 const monitoringSchema = readFileSync("auth-worker/migrations/0004_error_monitoring.sql", "utf8");
 const frontSource = readFileSync("components/frontend/blog-front.tsx", "utf8");
-const routerSource = readFileSync("components/frontend/blog-router.tsx", "utf8");
+const adminPage = readFileSync("app/admin/page.tsx", "utf8");
 
 test("首页与文章路由保持可用", () => {
   assert.match(source, /view: ['"]home['"]/);
@@ -132,15 +132,19 @@ test("构建产物包含首页与健康信息", () => {
   const homeHtml = readFileSync("dist/client/index.html", "utf8");
   const articleHtml = readFileSync("dist/client/post/welcome-to-nekopress.html", "utf8");
   assert.doesNotMatch(homeHtml, /blog-app-[^\"]+\.js/);
+  assert.doesNotMatch(homeHtml, /pexels-7518061\.jpg[^>]+fetchPriority="high"/);
+  assert.doesNotMatch(homeHtml, /诗歌-1788994669368\.webp[^>]+fetchPriority="high"/);
+  assert.ok(existsSync("dist/client/admin.html"));
   assert.match(articleHtml, /BlogPosting/);
   assert.match(articleHtml, /rel="canonical"/);
 });
 
 test("前台性能、真实链接和无障碍模式完整", () => {
-  assert.match(routerSource, /lazy\(\(\) => import\(['"]@\/components\/blog-app['"]\)/);
+  assert.match(adminPage, /AdminEntry/);
   assert.match(frontSource, /articleHref\(post\.slug\)/);
   assert.match(frontSource, /srcSet=/);
-  assert.match(frontSource, /loading=\{priority \? ['"]eager['"] : ['"]lazy['"]\}/);
+  assert.match(frontSource, /coverThumbnail \|\| post\.coverImage/);
+  assert.match(frontSource, /loading="lazy"/);
   assert.match(frontSource, /aria-live="polite"/);
   assert.match(css, /prefers-color-scheme: dark/);
   assert.match(css, /prefers-reduced-motion: reduce/);

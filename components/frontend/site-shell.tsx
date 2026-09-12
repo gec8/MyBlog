@@ -24,7 +24,7 @@ export function SiteHeader({ compact = false, name = 'NekoPress' }: { compact?: 
       <nav className={menuOpen ? 'nav-open' : ''} aria-label="主导航">
         <a className={compact ? 'active' : ''} href={homeHref('latest')} onClick={() => setMenuOpen(false)}>文章</a>
         <a href={homeHref('about')} onClick={() => setMenuOpen(false)}>关于</a>
-        <a className="write-link" href={`${basePath || ''}/#/admin`} onClick={() => setMenuOpen(false)}><PenLine size={14} />写文章</a>
+        <a className="write-link" href={`${basePath || ''}/admin`} onClick={() => setMenuOpen(false)}><PenLine size={14} />写文章</a>
       </nav>
       {menuOpen && <button className="nav-backdrop" aria-label="关闭菜单" onClick={() => setMenuOpen(false)} />}
       <button className="menu-toggle" onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen} aria-label={menuOpen ? '关闭菜单' : '打开菜单'}>{menuOpen ? <X /> : <Menu />}</button>

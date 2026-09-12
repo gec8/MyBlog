@@ -19,5 +19,6 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1, view
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const basePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? '').replace(/\/$/, '');
-  return <html lang="zh-CN"><head><link rel="preload" as="image" type="image/webp" href={`${basePath}/hero-1200.webp`} /><link rel="alternate" type="application/rss+xml" title="NekoPress RSS" href={`${basePath}/rss.xml`} /></head><body className={`${geistSans.variable} ${geistMono.variable}`}>{children}<noscript><main className="load-fallback"><b>NekoPress</b><p>请开启浏览器的 JavaScript 后重新访问。</p></main></noscript></body></html>;
+  const legacyRedirect = `try{var h=location.hash;if(h==='#/admin')location.replace('${basePath}/admin');else if(h.indexOf('#/post/')===0)location.replace('${basePath}/post/'+encodeURIComponent(decodeURIComponent(h.slice(7))))}catch(e){}`;
+  return <html lang="zh-CN"><head><script dangerouslySetInnerHTML={{ __html: legacyRedirect }} /><link rel="alternate" type="application/rss+xml" title="NekoPress RSS" href={`${basePath}/rss.xml`} /></head><body className={`${geistSans.variable} ${geistMono.variable}`}>{children}<noscript><main className="load-fallback"><b>NekoPress</b><p>请开启浏览器的 JavaScript 后重新访问。</p></main></noscript></body></html>;
 }

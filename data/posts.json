@@ -7,6 +7,7 @@
     "category": "随笔",
     "author": "Neko",
     "coverImage": "./images/pexels-7518061.jpg",
+    "coverThumbnail": "./images/thumb-pexels-7518061.webp",
     "coverCredit": "Kevin T",
     "coverCreditUrl": "https://www.pexels.com/photo/green-trees-beside-body-of-water-7518061/",
     "coverPosition": "50% 50%",
@@ -25,6 +26,7 @@
     "category": "随笔",
     "author": "Neko",
     "coverImage": "./images/诗歌-1788994669368.webp",
+    "coverThumbnail": "./images/thumb-poem.webp",
     "date": "2026-09-09",
     "readMinutes": 1,
     "content": "## 从这里开始\n\n写下你的正文。\n\n![architecture-3095716_1920.jpg](./images/article-image-1788994579040.webp)\n\n@[audio](./audio/article-audio-1788994597422.mp3)\n"
@@ -39,6 +41,7 @@
     "date": "2026-09-09",
     "readMinutes": 5,
     "coverImage": "./hero-1200.webp",
+    "coverThumbnail": "./hero-640.webp",
     "content": "## 一个简单的开始\n\n博客真正需要的东西并不多：一个安静的阅读入口、一处可以专心写作的后台，以及一套不会给未来增加负担的发布方式。\n\n> 好工具应该让内容站到前面，而不是让维护工具本身成为新的工作。\n\n## 为什么选择 GitHub Pages\n\n它免费、稳定，也足够透明。文章和网站代码一起保存在仓库里，每次发布都有清楚的版本记录。即使很多年后迁移，也只是带走一组普通文件。\n\n## 这次留下什么\n\n- 清爽的首页与文章阅读页\n- 直接写入 GitHub 仓库的发布后台\n- 自动构建与上线的工作流\n\n这就足够了。剩下的空间，留给真正想写的东西。"
   },
   {
@@ -60,6 +63,7 @@
     "category": "随笔",
     "author": "Neko",
     "coverImage": "./images/pexels-31829081.jpg",
+    "coverThumbnail": "./images/thumb-pexels-31829081.webp",
     "coverCredit": "Ted Gao",
     "coverCreditUrl": "https://www.pexels.com/photo/peaceful-countryside-view-in-china-on-a-sunny-day-31829081/",
     "coverPosition": "50% 50%",

@@ -9,6 +9,7 @@ export type Post = {
   readMinutes: number;
   content: string;
   coverImage?: string;
+  coverThumbnail?: string;
   coverCredit?: string;
   coverCreditUrl?: string;
   coverPosition?: string;
