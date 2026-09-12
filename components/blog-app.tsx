@@ -5685,6 +5685,8 @@ function UserManagement({
   const [passwordTarget, setPasswordTarget] = useState<AdminUser | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+  const [formVersion, setFormVersion] = useState(0);
   const [form, setForm] = useState({
     username: '',
     password: '',
@@ -5730,6 +5732,7 @@ function UserManagement({
         body: JSON.stringify(form),
       });
       setForm({ username: '', password: '' });
+      setFormVersion((version) => version + 1);
       setMessage('用户已添加，首次登录需要修改密码。');
       await load();
     } catch (error) {
@@ -5762,6 +5765,18 @@ function UserManagement({
       await load();
     } catch (error) { setMessage(error instanceof Error ? error.message : '密码修改失败。'); }
   }
+  async function removeUser() {
+    if (!deleteTarget) return;
+    setMessage('');
+    try {
+      await request(`/api/users/${encodeURIComponent(deleteTarget.id)}`, { method: 'DELETE' });
+      setMessage(`用户 ${deleteTarget.displayName} 已删除。`);
+      setDeleteTarget(null);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '删除失败。');
+    }
+  }
   return (
     <div className="user-management">
       <section className="manage-panel user-create">
@@ -5772,10 +5787,12 @@ function UserManagement({
           </div>
           <Users />
         </header>
-        <form onSubmit={addUser}>
+        <form key={formVersion} onSubmit={addUser} autoComplete="off">
           <Field label="登录账号">
             <Input
               value={form.username}
+              name={`new-user-${formVersion}`}
+              autoComplete="off"
               onChange={(event) =>
                 setForm({ ...form, username: event.target.value })
               }
@@ -5786,6 +5803,8 @@ function UserManagement({
           <Field label="初始密码">
             <Input
               type="password"
+              name={`new-password-${formVersion}`}
+              autoComplete="new-password"
               minLength={6}
               value={form.password}
               onChange={(event) =>
@@ -5846,27 +5865,17 @@ function UserManagement({
                 <option value="editor">编辑</option>
                 <option value="owner">超级管理员</option>
               </select>
-              <button
-                className="user-password"
-                onClick={() => { setPasswordTarget(user); setNewPassword(''); setConfirmPassword(''); setMessage(''); }}
-              >
-                <KeyRound />
-                改密码
-              </button>
-              <button
-                className={user.enabled ? 'user-enabled' : 'user-disabled'}
-                disabled={user.id === currentUser.id}
-                onClick={() =>
-                  void updateUser(user, { enabled: !user.enabled })
-                }
-              >
-                {user.enabled ? '已启用' : '已停用'}
-              </button>
+              <div className="user-row-actions">
+                <button className="user-password" onClick={() => { setPasswordTarget(user); setNewPassword(''); setConfirmPassword(''); setMessage(''); }}><KeyRound />改密码</button>
+                <button className={user.enabled ? 'user-enabled' : 'user-disabled'} disabled={user.id === currentUser.id} onClick={() => void updateUser(user, { enabled: !user.enabled })}>{user.enabled ? '已启用' : '已停用'}</button>
+                <button className="user-delete" disabled={user.id === currentUser.id} onClick={() => setDeleteTarget(user)}><Trash2 />删除</button>
+              </div>
             </article>
           ))
         )}
       </section>
       {passwordTarget && <div className="modal-backdrop" role="presentation" onMouseDown={() => setPasswordTarget(null)}><section className="publish-check user-password-dialog" role="dialog" aria-modal="true" aria-labelledby="user-password-title" onMouseDown={(event) => event.stopPropagation()}><header><span><KeyRound /></span><div><h2 id="user-password-title">修改用户密码</h2><p>{passwordTarget.displayName}（@{passwordTarget.username}）</p></div><button onClick={() => setPasswordTarget(null)} aria-label="关闭"><X /></button></header><form onSubmit={resetPassword}><Field label="新密码"><Input type="password" minLength={6} autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="至少 6 位，包含字母和数字" required /></Field><Field label="确认新密码"><Input type="password" minLength={6} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></Field><small>{passwordTarget.id === currentUser.id ? '修改自己的密码后会自动退出后台。' : '修改后该用户的旧登录将失效。'}</small><footer><Button type="button" variant="outline" onClick={() => setPasswordTarget(null)}>取消</Button><Button type="submit"><Save />确认修改</Button></footer></form></section></div>}
+      {deleteTarget && <div className="modal-backdrop" role="presentation" onMouseDown={() => setDeleteTarget(null)}><section className="publish-check user-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="user-delete-title" onMouseDown={(event) => event.stopPropagation()}><header><span><Trash2 /></span><div><h2 id="user-delete-title">删除用户？</h2><p>{deleteTarget.displayName}（@{deleteTarget.username}）</p></div><button onClick={() => setDeleteTarget(null)} aria-label="关闭"><X /></button></header><p className="delete-warning">删除后该账号将无法登录，已有登录会立即失效。文章和媒体不会被删除。</p><footer><Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>取消</Button><Button type="button" className="danger-button" onClick={() => void removeUser()}><Trash2 />确认删除</Button></footer></section></div>}
     </div>
   );
 }

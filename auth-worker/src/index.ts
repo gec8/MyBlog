@@ -96,6 +96,10 @@ export default {
           cors,
         );
       }
+      if (userMatch && request.method === 'DELETE') {
+        requireOwner(auth.user);
+        return deleteUser(request, env, auth.user, decodeURIComponent(userMatch[1]), cors);
+      }
       if (url.pathname === '/api/audit' && request.method === 'GET') {
         requireOwner(auth.user);
         const result = await env.DB.prepare(
@@ -133,7 +137,7 @@ function corsHeaders(origin: string, allowed: string) {
     'Access-Control-Allow-Origin': valid ? origin : allowed,
     'Access-Control-Allow-Headers':
       'Authorization, Content-Type, X-Setup-Secret',
-    'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };
@@ -512,4 +516,16 @@ async function updateUser(
     200,
     cors,
   );
+}
+
+async function deleteUser(request: Request, env: Env, actor: UserRow, userId: string, cors: Record<string, string>) {
+  if (userId === actor.id) throw new HttpError(400, '不能删除当前登录账号。');
+  const target = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(userId).first<UserRow>();
+  if (!target) throw new HttpError(404, '用户不存在。');
+  await audit(env, actor.id, 'user.deleted', 'user', userId, request, target.username);
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
+    env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId),
+  ]);
+  return json({ ok: true }, 200, cors);
 }

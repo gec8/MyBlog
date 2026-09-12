@@ -120,6 +120,8 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(source, /填写账号和初始密码/);
   assert.match(source, /新用户默认使用“作者”权限/);
   assert.match(source, /function UserManagement/);
+  assert.match(source, /deleteTarget/);
+  assert.match(source, /删除用户？/);
   assert.match(source, /nekopress-auth-token/);
   assert.match(authWorker, /PBKDF2/);
   assert.match(authWorker, /value\.length >= 6/);
@@ -129,6 +131,8 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(authWorker, /token_hash/);
   assert.match(authWorker, /password-reset/);
   assert.match(authWorker, /reauth/);
+  assert.match(authWorker, /async function deleteUser/);
+  assert.match(authWorker, /不能删除当前登录账号/);
   assert.match(authSchema, /CREATE TABLE IF NOT EXISTS users/);
   assert.match(authSchema, /CREATE TABLE IF NOT EXISTS audit_logs/);
 });
