@@ -116,6 +116,8 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(source, /function AccountSecurity/);
   assert.match(source, /两次输入的新密码不一致/);
   assert.match(source, /所有设备上的旧登录都会失效/);
+  assert.match(source, /修改用户密码/);
+  assert.match(source, /passwordTarget/);
   assert.match(source, /function UserManagement/);
   assert.match(source, /nekopress-auth-token/);
   assert.match(authWorker, /PBKDF2/);
@@ -124,6 +126,8 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(authWorker, /failed_attempts/);
   assert.match(authWorker, /requireOwner/);
   assert.match(authWorker, /token_hash/);
+  assert.match(authWorker, /password-reset/);
+  assert.match(authWorker, /reauth/);
   assert.match(authSchema, /CREATE TABLE IF NOT EXISTS users/);
   assert.match(authSchema, /CREATE TABLE IF NOT EXISTS audit_logs/);
 });

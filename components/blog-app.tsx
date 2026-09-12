@@ -1283,61 +1283,317 @@ function Admin(props: {
 
   useEffect(() => {
     const saved = sessionStorage.getItem('nekopress-auth-token') ?? '';
-    if (!saved) { deferUpdate(() => setReady(true)); return; }
-    fetch(`${authApi}/api/auth/me`, { headers: { Authorization: `Bearer ${saved}` }, cache: 'no-store' })
-      .then(async (response) => { if (!response.ok) throw new Error(); const result = await response.json() as { user: AdminUser }; setAuthToken(saved); setUser(result.user); })
+    if (!saved) {
+      deferUpdate(() => setReady(true));
+      return;
+    }
+    fetch(`${authApi}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${saved}` },
+      cache: 'no-store',
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error();
+        const result = (await response.json()) as { user: AdminUser };
+        setAuthToken(saved);
+        setUser(result.user);
+      })
       .catch(() => sessionStorage.removeItem('nekopress-auth-token'))
       .finally(() => setReady(true));
   }, []);
 
   async function login(event: FormEvent) {
-    event.preventDefault(); setAuthBusy(true); setAuthMessage('');
+    event.preventDefault();
+    setAuthBusy(true);
+    setAuthMessage('');
     try {
-      const response = await fetch(`${authApi}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
-      const result = await response.json() as { token?: string; user?: AdminUser; error?: string };
-      if (!response.ok || !result.token || !result.user) throw new Error(result.error || '登录失败。');
-      sessionStorage.setItem('nekopress-auth-token', result.token); setAuthToken(result.token); setUser(result.user); setPassword('');
-    } catch (error) { setAuthMessage(error instanceof Error ? error.message : '无法连接登录服务。'); }
-    finally { setAuthBusy(false); }
+      const response = await fetch(`${authApi}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const result = (await response.json()) as {
+        token?: string;
+        user?: AdminUser;
+        error?: string;
+      };
+      if (!response.ok || !result.token || !result.user)
+        throw new Error(result.error || '登录失败。');
+      sessionStorage.setItem('nekopress-auth-token', result.token);
+      setAuthToken(result.token);
+      setUser(result.user);
+      setPassword('');
+    } catch (error) {
+      setAuthMessage(
+        error instanceof Error ? error.message : '无法连接登录服务。',
+      );
+    } finally {
+      setAuthBusy(false);
+    }
   }
 
   async function logout() {
-    if (authToken) void fetch(`${authApi}/api/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}` } });
-    sessionStorage.removeItem('nekopress-auth-token'); setAuthToken(''); setUser(null); setPassword('');
+    if (authToken)
+      void fetch(`${authApi}/api/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+    sessionStorage.removeItem('nekopress-auth-token');
+    setAuthToken('');
+    setUser(null);
+    setPassword('');
   }
 
-  if (!ready) return <div className="admin-auth-loading"><LoaderCircle className="spin" /><span>正在验证登录状态…</span></div>;
-  if (!user) return <div className="admin-login"><section><div className="login-brand"><span>猫</span><div><small>NEKOPRESS ADMIN</small><h1>欢迎回来</h1><p>登录后管理文章、媒体与网站用户。</p></div></div><form onSubmit={login}><Field label="账号"><Input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" placeholder="请输入账号" required /></Field><Field label="密码"><Input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" placeholder="请输入密码" required /></Field>{authMessage && <output className="status-message error">{authMessage}</output>}<Button type="submit" disabled={authBusy}>{authBusy ? <LoaderCircle className="spin" /> : <KeyRound />}{authBusy ? '正在登录…' : '登录后台'}</Button></form><button className="login-back" onClick={() => go()}><ArrowLeft />返回博客首页</button></section></div>;
-  if (user.mustChangePassword) return <PasswordChange token={authToken} onComplete={logout} />;
-  return <AdminWorkspace {...props} currentUser={user} authToken={authToken} onAuthLogout={logout} />;
+  if (!ready)
+    return (
+      <div className="admin-auth-loading">
+        <LoaderCircle className="spin" />
+        <span>正在验证登录状态…</span>
+      </div>
+    );
+  if (!user)
+    return (
+      <div className="admin-login">
+        <section>
+          <div className="login-brand">
+            <span>猫</span>
+            <div>
+              <small>NEKOPRESS ADMIN</small>
+              <h1>欢迎回来</h1>
+              <p>登录后管理文章、媒体与网站用户。</p>
+            </div>
+          </div>
+          <form onSubmit={login}>
+            <Field label="账号">
+              <Input
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                autoComplete="username"
+                placeholder="请输入账号"
+                required
+              />
+            </Field>
+            <Field label="密码">
+              <Input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                placeholder="请输入密码"
+                required
+              />
+            </Field>
+            {authMessage && (
+              <output className="status-message error">{authMessage}</output>
+            )}
+            <Button type="submit" disabled={authBusy}>
+              {authBusy ? <LoaderCircle className="spin" /> : <KeyRound />}
+              {authBusy ? '正在登录…' : '登录后台'}
+            </Button>
+          </form>
+          <button className="login-back" onClick={() => go()}>
+            <ArrowLeft />
+            返回博客首页
+          </button>
+        </section>
+      </div>
+    );
+  if (user.mustChangePassword)
+    return <PasswordChange token={authToken} onComplete={logout} />;
+  return (
+    <AdminWorkspace
+      {...props}
+      currentUser={user}
+      authToken={authToken}
+      onAuthLogout={logout}
+    />
+  );
 }
 
-function PasswordChange({ token, onComplete }: { token: string; onComplete: () => void }) {
-  const [currentPassword, setCurrentPassword] = useState(''); const [newPassword, setNewPassword] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
-  async function submit(event: FormEvent) { event.preventDefault(); setBusy(true); setMessage(''); try { const response = await fetch(`${authApi}/api/auth/password`, { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword, newPassword }) }); const result = await response.json() as { error?: string }; if (!response.ok) throw new Error(result.error || '密码修改失败。'); onComplete(); } catch (error) { setMessage(error instanceof Error ? error.message : '密码修改失败。'); } finally { setBusy(false); } }
-  return <div className="admin-login"><section><div className="login-brand"><span><KeyRound /></span><div><small>SECURITY CHECK</small><h1>设置新密码</h1><p>临时密码只能使用一次，请先设置自己的密码。</p></div></div><form onSubmit={submit}><Field label="当前临时密码"><Input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></Field><Field label="新密码"><Input type="password" minLength={6} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="至少 6 位，包含字母和数字" required /></Field>{message && <output className="status-message error">{message}</output>}<Button type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <Save />}{busy ? '正在保存…' : '保存新密码'}</Button></form></section></div>;
+function PasswordChange({
+  token,
+  onComplete,
+}: {
+  token: string;
+  onComplete: () => void;
+}) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage('');
+    try {
+      const response = await fetch(`${authApi}/api/auth/password`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(result.error || '密码修改失败。');
+      onComplete();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '密码修改失败。');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="admin-login">
+      <section>
+        <div className="login-brand">
+          <span>
+            <KeyRound />
+          </span>
+          <div>
+            <small>SECURITY CHECK</small>
+            <h1>设置新密码</h1>
+            <p>临时密码只能使用一次，请先设置自己的密码。</p>
+          </div>
+        </div>
+        <form onSubmit={submit}>
+          <Field label="当前临时密码">
+            <Input
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              required
+            />
+          </Field>
+          <Field label="新密码">
+            <Input
+              type="password"
+              minLength={6}
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              placeholder="至少 6 位，包含字母和数字"
+              required
+            />
+          </Field>
+          {message && (
+            <output className="status-message error">{message}</output>
+          )}
+          <Button type="submit" disabled={busy}>
+            {busy ? <LoaderCircle className="spin" /> : <Save />}
+            {busy ? '正在保存…' : '保存新密码'}
+          </Button>
+        </form>
+      </section>
+    </div>
+  );
 }
 
-function AccountSecurity({ token, user, onComplete }: { token: string; user: AdminUser; onComplete: () => void }) {
+function AccountSecurity({
+  token,
+  user,
+  onComplete,
+}: {
+  token: string;
+  user: AdminUser;
+  onComplete: () => void;
+}) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   async function submit(event: FormEvent) {
-    event.preventDefault(); setMessage('');
-    if (newPassword !== confirmPassword) { setMessage('两次输入的新密码不一致。'); return; }
-    if (newPassword.length < 6 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) { setMessage('新密码至少 6 位，并同时包含字母和数字。'); return; }
+    event.preventDefault();
+    setMessage('');
+    if (newPassword !== confirmPassword) {
+      setMessage('两次输入的新密码不一致。');
+      return;
+    }
+    if (
+      newPassword.length < 6 ||
+      !/[A-Za-z]/.test(newPassword) ||
+      !/\d/.test(newPassword)
+    ) {
+      setMessage('新密码至少 6 位，并同时包含字母和数字。');
+      return;
+    }
     setBusy(true);
     try {
-      const response = await fetch(`${authApi}/api/auth/password`, { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword, newPassword }) });
-      const result = await response.json() as { error?: string };
+      const response = await fetch(`${authApi}/api/auth/password`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const result = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(result.error || '密码修改失败。');
       onComplete();
-    } catch (error) { setMessage(error instanceof Error ? error.message : '密码修改失败。'); }
-    finally { setBusy(false); }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '密码修改失败。');
+    } finally {
+      setBusy(false);
+    }
   }
-  return <div className="account-security"><section className="manage-panel"><header><span><KeyRound /></span><div><h2>修改登录密码</h2><p>当前账号：{user.displayName}（@{user.username}）</p></div></header><form onSubmit={submit}><Field label="当前密码"><Input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></Field><Field label="新密码"><Input type="password" minLength={6} autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="至少 6 位，包含字母和数字" required /></Field><Field label="确认新密码"><Input type="password" minLength={6} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></Field>{message && <output className="status-message error">{message}</output>}<div className="account-security-actions"><small>修改后所有设备上的旧登录都会失效。</small><Button type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <Save />}{busy ? '正在修改…' : '修改密码'}</Button></div></form></section></div>;
+  return (
+    <div className="account-security">
+      <section className="manage-panel">
+        <header>
+          <span>
+            <KeyRound />
+          </span>
+          <div>
+            <h2>修改登录密码</h2>
+            <p>
+              当前账号：{user.displayName}（@{user.username}）
+            </p>
+          </div>
+        </header>
+        <form onSubmit={submit}>
+          <Field label="当前密码">
+            <Input
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              required
+            />
+          </Field>
+          <Field label="新密码">
+            <Input
+              type="password"
+              minLength={6}
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              placeholder="至少 6 位，包含字母和数字"
+              required
+            />
+          </Field>
+          <Field label="确认新密码">
+            <Input
+              type="password"
+              minLength={6}
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              required
+            />
+          </Field>
+          {message && (
+            <output className="status-message error">{message}</output>
+          )}
+          <div className="account-security-actions">
+            <small>修改后所有设备上的旧登录都会失效。</small>
+            <Button type="submit" disabled={busy}>
+              {busy ? <LoaderCircle className="spin" /> : <Save />}
+              {busy ? '正在修改…' : '修改密码'}
+            </Button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
 }
 
 function AdminWorkspace({
@@ -1367,7 +1623,14 @@ function AdminWorkspace({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [panel, setPanel] = useState<
-    'dashboard' | 'posts' | 'editor' | 'media' | 'drafts' | 'settings' | 'users' | 'account'
+    | 'dashboard'
+    | 'posts'
+    | 'editor'
+    | 'media'
+    | 'drafts'
+    | 'settings'
+    | 'users'
+    | 'account'
   >('dashboard');
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('全部');
@@ -3196,12 +3459,15 @@ function AdminWorkspace({
                 <b>{config.branch}</b>
                 <p>
                   <LockKeyhole />
-                  {currentUser.displayName} · {currentUser.role === 'owner' ? '超级管理员' : currentUser.role === 'editor' ? '编辑' : '作者'}
+                  {currentUser.displayName} ·{' '}
+                  {currentUser.role === 'owner'
+                    ? '超级管理员'
+                    : currentUser.role === 'editor'
+                      ? '编辑'
+                      : '作者'}
                 </p>
               </div>
-              <button
-                onClick={onAuthLogout}
-              >
+              <button onClick={onAuthLogout}>
                 <LogOut />
                 退出账号
               </button>
@@ -3222,11 +3488,11 @@ function AdminWorkspace({
                           ? 'USERS'
                           : panel === 'account'
                             ? 'SECURITY'
-                        : panel === 'drafts'
-                          ? 'DRAFTS'
-                          : panel === 'settings'
-                            ? 'SETTINGS'
-                            : 'EDITOR'}
+                            : panel === 'drafts'
+                              ? 'DRAFTS'
+                              : panel === 'settings'
+                                ? 'SETTINGS'
+                                : 'EDITOR'}
                 </p>
                 <h1>
                   {panel === 'dashboard'
@@ -3239,13 +3505,13 @@ function AdminWorkspace({
                           ? '用户管理'
                           : panel === 'account'
                             ? '账号安全'
-                        : panel === 'drafts'
-                          ? '本机草稿'
-                          : panel === 'settings'
-                            ? '博客设置'
-                            : editingId
-                              ? `编辑：${draft.title || '未命名文章'}`
-                              : '写一篇新文章'}
+                            : panel === 'drafts'
+                              ? '本机草稿'
+                              : panel === 'settings'
+                                ? '博客设置'
+                                : editingId
+                                  ? `编辑：${draft.title || '未命名文章'}`
+                                  : '写一篇新文章'}
                 </h1>
               </div>
               <div className="workspace-actions">
@@ -3265,12 +3531,14 @@ function AdminWorkspace({
                     {focusMode ? '退出专注' : '专注模式'}
                   </Button>
                 )}
-                {panel !== 'settings' && panel !== 'users' && panel !== 'account' && (
-                  <Button onClick={newPost}>
-                    <FilePlus2 />
-                    新文章
-                  </Button>
-                )}
+                {panel !== 'settings' &&
+                  panel !== 'users' &&
+                  panel !== 'account' && (
+                    <Button onClick={newPost}>
+                      <FilePlus2 />
+                      新文章
+                    </Button>
+                  )}
               </div>
             </header>
             {message && (
@@ -4644,11 +4912,15 @@ function AdminWorkspace({
             )}
 
             {panel === 'users' && currentUser.role === 'owner' && (
-              <UserManagement token={authToken} currentUser={currentUser} />
+              <UserManagement token={authToken} currentUser={currentUser} onReauth={onAuthLogout} />
             )}
 
             {panel === 'account' && (
-              <AccountSecurity token={authToken} user={currentUser} onComplete={onAuthLogout} />
+              <AccountSecurity
+                token={authToken}
+                user={currentUser}
+                onComplete={onAuthLogout}
+              />
             )}
 
             {panel === 'settings' && (
@@ -5419,22 +5691,232 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function UserManagement({ token, currentUser }: { token: string; currentUser: AdminUser }) {
+function UserManagement({
+  token,
+  currentUser,
+  onReauth,
+}: {
+  token: string;
+  currentUser: AdminUser;
+  onReauth: () => void;
+}) {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
-  const [form, setForm] = useState({ username: '', displayName: '', password: '', role: 'author' as AdminUser['role'] });
+  const [passwordTarget, setPasswordTarget] = useState<AdminUser | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [form, setForm] = useState({
+    username: '',
+    displayName: '',
+    password: '',
+    role: 'author' as AdminUser['role'],
+  });
   const request = async (path: string, options: RequestInit = {}) => {
-    const response = await fetch(`${authApi}${path}`, { ...options, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...options.headers }, cache: 'no-store' });
-    const result = await response.json() as { users?: AdminUser[]; error?: string };
+    const response = await fetch(`${authApi}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+      cache: 'no-store',
+    });
+    const result = (await response.json()) as {
+      users?: AdminUser[];
+      error?: string;
+      reauth?: boolean;
+    };
     if (!response.ok) throw new Error(result.error || '操作失败。');
     return result;
   };
-  const load = async () => { setLoading(true); try { const result = await request('/api/users'); setUsers(result.users ?? []); } catch (error) { setMessage(error instanceof Error ? error.message : '用户加载失败。'); } finally { setLoading(false); } };
-  useEffect(() => { void load(); }, []);
-  async function addUser(event: FormEvent) { event.preventDefault(); setMessage(''); try { await request('/api/users', { method: 'POST', body: JSON.stringify(form) }); setForm({ username: '', displayName: '', password: '', role: 'author' }); setMessage('用户已添加，首次登录需要修改密码。'); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : '添加失败。'); } }
-  async function updateUser(user: AdminUser, next: Partial<AdminUser>) { setMessage(''); try { await request(`/api/users/${encodeURIComponent(user.id)}`, { method: 'PATCH', body: JSON.stringify(next) }); setMessage('用户权限已更新。'); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : '更新失败。'); } }
-  return <div className="user-management"><section className="manage-panel user-create"><header><div><h2>添加用户</h2><p>创建账号并分配权限，临时密码首次登录后必须修改。</p></div><Users /></header><form onSubmit={addUser}><Field label="登录账号"><Input value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} placeholder="3–32 位字母或数字" required /></Field><Field label="显示名称"><Input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="作者名称" required /></Field><Field label="用户角色"><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as AdminUser['role'] })}><option value="author">作者</option><option value="editor">编辑</option><option value="owner">超级管理员</option></select></Field><Field label="临时密码"><Input type="password" minLength={6} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="至少 6 位，包含字母和数字" required /></Field><Button type="submit"><Users />添加用户</Button></form></section>{message && <output className="status-message success">{message}</output>}<section className="manage-panel user-list"><header><div><h2>现有用户</h2><p>{users.length} 个后台账号</p></div><Button variant="outline" onClick={() => void load()}><RefreshCw />刷新</Button></header>{loading ? <div className="list-empty"><LoaderCircle className="spin" /></div> : users.map((user) => <article key={user.id}><span className="user-avatar">{user.displayName.slice(0, 1).toUpperCase()}</span><div><b>{user.displayName}</b><small>@{user.username} · {user.lastLoginAt ? `最近登录 ${new Date(user.lastLoginAt).toLocaleString('zh-CN')}` : '尚未登录'}{user.mustChangePassword ? ' · 待修改密码' : ''}</small></div><select value={user.role} disabled={user.id === currentUser.id} onChange={(event) => void updateUser(user, { role: event.target.value as AdminUser['role'] })}><option value="author">作者</option><option value="editor">编辑</option><option value="owner">超级管理员</option></select><button className={user.enabled ? 'user-enabled' : 'user-disabled'} disabled={user.id === currentUser.id} onClick={() => void updateUser(user, { enabled: !user.enabled })}>{user.enabled ? '已启用' : '已停用'}</button></article>)}</section></div>;
+  const load = async () => {
+    setLoading(true);
+    try {
+      const result = await request('/api/users');
+      setUsers(result.users ?? []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '用户加载失败。');
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    void load();
+  }, []);
+  async function addUser(event: FormEvent) {
+    event.preventDefault();
+    setMessage('');
+    try {
+      await request('/api/users', {
+        method: 'POST',
+        body: JSON.stringify(form),
+      });
+      setForm({ username: '', displayName: '', password: '', role: 'author' });
+      setMessage('用户已添加，首次登录需要修改密码。');
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '添加失败。');
+    }
+  }
+  async function updateUser(user: AdminUser, next: Partial<AdminUser>) {
+    setMessage('');
+    try {
+      await request(`/api/users/${encodeURIComponent(user.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(next),
+      });
+      setMessage('用户权限已更新。');
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '更新失败。');
+    }
+  }
+  async function resetPassword(event: FormEvent) {
+    event.preventDefault();
+    if (!passwordTarget) return;
+    if (newPassword !== confirmPassword) { setMessage('两次输入的新密码不一致。'); return; }
+    if (newPassword.length < 6 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) { setMessage('新密码至少 6 位，并同时包含字母和数字。'); return; }
+    try {
+      const result = await request(`/api/users/${encodeURIComponent(passwordTarget.id)}`, { method: 'PATCH', body: JSON.stringify({ password: newPassword }) });
+      setPasswordTarget(null); setNewPassword(''); setConfirmPassword('');
+      if (result.reauth) { onReauth(); return; }
+      setMessage(`已修改 ${passwordTarget.displayName} 的密码，对方下次登录时需要确认新密码。`);
+      await load();
+    } catch (error) { setMessage(error instanceof Error ? error.message : '密码修改失败。'); }
+  }
+  return (
+    <div className="user-management">
+      <section className="manage-panel user-create">
+        <header>
+          <div>
+            <h2>添加用户</h2>
+            <p>创建账号并分配权限，临时密码首次登录后必须修改。</p>
+          </div>
+          <Users />
+        </header>
+        <form onSubmit={addUser}>
+          <Field label="登录账号">
+            <Input
+              value={form.username}
+              onChange={(event) =>
+                setForm({ ...form, username: event.target.value })
+              }
+              placeholder="3–32 位字母或数字"
+              required
+            />
+          </Field>
+          <Field label="显示名称">
+            <Input
+              value={form.displayName}
+              onChange={(event) =>
+                setForm({ ...form, displayName: event.target.value })
+              }
+              placeholder="作者名称"
+              required
+            />
+          </Field>
+          <Field label="用户角色">
+            <select
+              value={form.role}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  role: event.target.value as AdminUser['role'],
+                })
+              }
+            >
+              <option value="author">作者</option>
+              <option value="editor">编辑</option>
+              <option value="owner">超级管理员</option>
+            </select>
+          </Field>
+          <Field label="临时密码">
+            <Input
+              type="password"
+              minLength={6}
+              value={form.password}
+              onChange={(event) =>
+                setForm({ ...form, password: event.target.value })
+              }
+              placeholder="至少 6 位，包含字母和数字"
+              required
+            />
+          </Field>
+          <Button type="submit">
+            <Users />
+            添加用户
+          </Button>
+        </form>
+      </section>
+      {message && <output className="status-message success">{message}</output>}
+      <section className="manage-panel user-list">
+        <header>
+          <div>
+            <h2>现有用户</h2>
+            <p>{users.length} 个后台账号</p>
+          </div>
+          <Button variant="outline" onClick={() => void load()}>
+            <RefreshCw />
+            刷新
+          </Button>
+        </header>
+        {loading ? (
+          <div className="list-empty">
+            <LoaderCircle className="spin" />
+          </div>
+        ) : (
+          users.map((user) => (
+            <article key={user.id}>
+              <span className="user-avatar">
+                {user.displayName.slice(0, 1).toUpperCase()}
+              </span>
+              <div>
+                <b>{user.displayName}</b>
+                <small>
+                  @{user.username} ·{' '}
+                  {user.lastLoginAt
+                    ? `最近登录 ${new Date(user.lastLoginAt).toLocaleString('zh-CN')}`
+                    : '尚未登录'}
+                  {user.mustChangePassword ? ' · 待修改密码' : ''}
+                </small>
+              </div>
+              <select
+                value={user.role}
+                disabled={user.id === currentUser.id}
+                onChange={(event) =>
+                  void updateUser(user, {
+                    role: event.target.value as AdminUser['role'],
+                  })
+                }
+              >
+                <option value="author">作者</option>
+                <option value="editor">编辑</option>
+                <option value="owner">超级管理员</option>
+              </select>
+              <button
+                className="user-password"
+                onClick={() => { setPasswordTarget(user); setNewPassword(''); setConfirmPassword(''); setMessage(''); }}
+              >
+                <KeyRound />
+                改密码
+              </button>
+              <button
+                className={user.enabled ? 'user-enabled' : 'user-disabled'}
+                disabled={user.id === currentUser.id}
+                onClick={() =>
+                  void updateUser(user, { enabled: !user.enabled })
+                }
+              >
+                {user.enabled ? '已启用' : '已停用'}
+              </button>
+            </article>
+          ))
+        )}
+      </section>
+      {passwordTarget && <div className="modal-backdrop" role="presentation" onMouseDown={() => setPasswordTarget(null)}><section className="publish-check user-password-dialog" role="dialog" aria-modal="true" aria-labelledby="user-password-title" onMouseDown={(event) => event.stopPropagation()}><header><span><KeyRound /></span><div><h2 id="user-password-title">修改用户密码</h2><p>{passwordTarget.displayName}（@{passwordTarget.username}）</p></div><button onClick={() => setPasswordTarget(null)} aria-label="关闭"><X /></button></header><form onSubmit={resetPassword}><Field label="新密码"><Input type="password" minLength={6} autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="至少 6 位，包含字母和数字" required /></Field><Field label="确认新密码"><Input type="password" minLength={6} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></Field><small>{passwordTarget.id === currentUser.id ? '修改自己的密码后会自动退出后台。' : '修改后该用户的旧登录将失效。'}</small><footer><Button type="button" variant="outline" onClick={() => setPasswordTarget(null)}>取消</Button><Button type="submit"><Save />确认修改</Button></footer></form></section></div>}
+    </div>
+  );
 }
 
 function slugify(value: string) {
