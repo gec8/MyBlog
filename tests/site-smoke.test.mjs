@@ -6,6 +6,8 @@ const source = readFileSync("components/blog-app.tsx", "utf8");
 const css = readFileSync("app/globals.css", "utf8");
 const pexelsCss = readFileSync("app/pexels-picker.css", "utf8");
 const draftUtils = readFileSync("components/admin/draft-utils.ts", "utf8");
+const authWorker = readFileSync("auth-worker/src/index.ts", "utf8");
+const authSchema = readFileSync("auth-worker/migrations/0001_users.sql", "utf8");
 
 test("首页与文章路由保持可用", () => {
   assert.match(source, /view: ['"]home['"]/);
@@ -107,4 +109,16 @@ test("移动端限制横向溢出", () => {
 test("构建产物包含首页与健康信息", () => {
   assert.ok(existsSync("dist/client/index.html"));
   assert.ok(existsSync("dist/client/build-info.json"));
+});
+
+test("后台账号、权限与安全会话完整", () => {
+  assert.match(source, /function PasswordChange/);
+  assert.match(source, /function UserManagement/);
+  assert.match(source, /nekopress-auth-token/);
+  assert.match(authWorker, /PBKDF2/);
+  assert.match(authWorker, /failed_attempts/);
+  assert.match(authWorker, /requireOwner/);
+  assert.match(authWorker, /token_hash/);
+  assert.match(authSchema, /CREATE TABLE IF NOT EXISTS users/);
+  assert.match(authSchema, /CREATE TABLE IF NOT EXISTS audit_logs/);
 });

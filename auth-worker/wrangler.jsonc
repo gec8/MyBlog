@@ -1,0 +1,17 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "nekopress-auth",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-12",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nekopress-auth",
+      "database_id": "d23f5460-fa10-4905-8a16-4a5f982a9324",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "ALLOWED_ORIGIN": "https://gec8.github.io"
+  }
+}

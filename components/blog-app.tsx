@@ -4,6 +4,7 @@
 import {
   ChangeEvent,
   DragEvent,
+  FormEvent,
   ReactNode,
   useEffect,
   useMemo,
@@ -60,6 +61,7 @@ import {
   Trash2,
   Undo2,
   Upload,
+  Users,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -1254,14 +1256,82 @@ const emptyDraft: Draft = {
   content: '## 从这里开始\n\n写下你的正文。',
 };
 
-function Admin({
+type AdminUser = {
+  id: string;
+  username: string;
+  displayName: string;
+  role: 'owner' | 'editor' | 'author';
+  enabled: boolean;
+  mustChangePassword: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+};
+const authApi = 'https://nekopress-auth.wangshirufengabc.workers.dev';
+
+function Admin(props: {
+  posts: Post[];
+  initialSettings: SiteSettings;
+  onPostsChange: (posts: Post[]) => void;
+}) {
+  const [ready, setReady] = useState(false);
+  const [authToken, setAuthToken] = useState('');
+  const [user, setUser] = useState<AdminUser | null>(null);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [authMessage, setAuthMessage] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem('nekopress-auth-token') ?? '';
+    if (!saved) { deferUpdate(() => setReady(true)); return; }
+    fetch(`${authApi}/api/auth/me`, { headers: { Authorization: `Bearer ${saved}` }, cache: 'no-store' })
+      .then(async (response) => { if (!response.ok) throw new Error(); const result = await response.json() as { user: AdminUser }; setAuthToken(saved); setUser(result.user); })
+      .catch(() => sessionStorage.removeItem('nekopress-auth-token'))
+      .finally(() => setReady(true));
+  }, []);
+
+  async function login(event: FormEvent) {
+    event.preventDefault(); setAuthBusy(true); setAuthMessage('');
+    try {
+      const response = await fetch(`${authApi}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+      const result = await response.json() as { token?: string; user?: AdminUser; error?: string };
+      if (!response.ok || !result.token || !result.user) throw new Error(result.error || '登录失败。');
+      sessionStorage.setItem('nekopress-auth-token', result.token); setAuthToken(result.token); setUser(result.user); setPassword('');
+    } catch (error) { setAuthMessage(error instanceof Error ? error.message : '无法连接登录服务。'); }
+    finally { setAuthBusy(false); }
+  }
+
+  async function logout() {
+    if (authToken) void fetch(`${authApi}/api/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${authToken}` } });
+    sessionStorage.removeItem('nekopress-auth-token'); setAuthToken(''); setUser(null); setPassword('');
+  }
+
+  if (!ready) return <div className="admin-auth-loading"><LoaderCircle className="spin" /><span>正在验证登录状态…</span></div>;
+  if (!user) return <div className="admin-login"><section><div className="login-brand"><span>猫</span><div><small>NEKOPRESS ADMIN</small><h1>欢迎回来</h1><p>登录后管理文章、媒体与网站用户。</p></div></div><form onSubmit={login}><Field label="账号"><Input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" placeholder="请输入账号" required /></Field><Field label="密码"><Input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" placeholder="请输入密码" required /></Field>{authMessage && <output className="status-message error">{authMessage}</output>}<Button type="submit" disabled={authBusy}>{authBusy ? <LoaderCircle className="spin" /> : <KeyRound />}{authBusy ? '正在登录…' : '登录后台'}</Button></form><button className="login-back" onClick={() => go()}><ArrowLeft />返回博客首页</button></section></div>;
+  if (user.mustChangePassword) return <PasswordChange token={authToken} onComplete={logout} />;
+  return <AdminWorkspace {...props} currentUser={user} authToken={authToken} onAuthLogout={logout} />;
+}
+
+function PasswordChange({ token, onComplete }: { token: string; onComplete: () => void }) {
+  const [currentPassword, setCurrentPassword] = useState(''); const [newPassword, setNewPassword] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
+  async function submit(event: FormEvent) { event.preventDefault(); setBusy(true); setMessage(''); try { const response = await fetch(`${authApi}/api/auth/password`, { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword, newPassword }) }); const result = await response.json() as { error?: string }; if (!response.ok) throw new Error(result.error || '密码修改失败。'); onComplete(); } catch (error) { setMessage(error instanceof Error ? error.message : '密码修改失败。'); } finally { setBusy(false); } }
+  return <div className="admin-login"><section><div className="login-brand"><span><KeyRound /></span><div><small>SECURITY CHECK</small><h1>设置新密码</h1><p>临时密码只能使用一次，请先设置自己的密码。</p></div></div><form onSubmit={submit}><Field label="当前临时密码"><Input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></Field><Field label="新密码"><Input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="至少 10 位，包含字母和数字" required /></Field>{message && <output className="status-message error">{message}</output>}<Button type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <Save />}{busy ? '正在保存…' : '保存新密码'}</Button></form></section></div>;
+}
+
+function AdminWorkspace({
   posts,
   initialSettings,
   onPostsChange,
+  currentUser,
+  authToken,
+  onAuthLogout,
 }: {
   posts: Post[];
   initialSettings: SiteSettings;
   onPostsChange: (posts: Post[]) => void;
+  currentUser: AdminUser;
+  authToken: string;
+  onAuthLogout: () => void;
 }) {
   const [config, setConfig] = useState<RepoConfig>({
     owner: '',
@@ -1275,7 +1345,7 @@ function Admin({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [panel, setPanel] = useState<
-    'dashboard' | 'posts' | 'editor' | 'media' | 'drafts' | 'settings'
+    'dashboard' | 'posts' | 'editor' | 'media' | 'drafts' | 'settings' | 'users'
   >('dashboard');
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('全部');
@@ -3078,6 +3148,15 @@ function Admin({
                 <Settings />
                 设置{settingsDirty && <i className="nav-dot" />}
               </button>
+              {currentUser.role === 'owner' && (
+                <button
+                  className={panel === 'users' ? 'active' : ''}
+                  onClick={() => setPanel('users')}
+                >
+                  <Users />
+                  用户
+                </button>
+              )}
             </nav>
             <div className="sidebar-bottom">
               <div className="connection-card">
@@ -3088,18 +3167,14 @@ function Admin({
                 <b>{config.branch}</b>
                 <p>
                   <LockKeyhole />
-                  刷新保持登录，关闭标签页后自动清除。
+                  {currentUser.displayName} · {currentUser.role === 'owner' ? '超级管理员' : currentUser.role === 'editor' ? '编辑' : '作者'}
                 </p>
               </div>
               <button
-                onClick={() => {
-                  sessionStorage.removeItem('nekopress-token');
-                  setToken('');
-                  setConnected(false);
-                }}
+                onClick={onAuthLogout}
               >
-                <KeyRound />
-                断开并清除令牌
+                <LogOut />
+                退出账号
               </button>
             </div>
           </aside>
@@ -3114,6 +3189,8 @@ function Admin({
                       ? 'CONTENT'
                       : panel === 'media'
                         ? 'MEDIA'
+                        : panel === 'users'
+                          ? 'USERS'
                         : panel === 'drafts'
                           ? 'DRAFTS'
                           : panel === 'settings'
@@ -3127,6 +3204,8 @@ function Admin({
                       ? '文章管理'
                       : panel === 'media'
                         ? '媒体资源'
+                        : panel === 'users'
+                          ? '用户管理'
                         : panel === 'drafts'
                           ? '本机草稿'
                           : panel === 'settings'
@@ -3153,7 +3232,7 @@ function Admin({
                     {focusMode ? '退出专注' : '专注模式'}
                   </Button>
                 )}
-                {panel !== 'settings' && (
+                {panel !== 'settings' && panel !== 'users' && (
                   <Button onClick={newPost}>
                     <FilePlus2 />
                     新文章
@@ -4531,6 +4610,10 @@ function Admin({
               </div>
             )}
 
+            {panel === 'users' && currentUser.role === 'owner' && (
+              <UserManagement token={authToken} currentUser={currentUser} />
+            )}
+
             {panel === 'settings' && (
               <form
                 className="settings-groups"
@@ -5297,6 +5380,24 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {children}
     </label>
   );
+}
+
+function UserManagement({ token, currentUser }: { token: string; currentUser: AdminUser }) {
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+  const [form, setForm] = useState({ username: '', displayName: '', password: '', role: 'author' as AdminUser['role'] });
+  const request = async (path: string, options: RequestInit = {}) => {
+    const response = await fetch(`${authApi}${path}`, { ...options, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...options.headers }, cache: 'no-store' });
+    const result = await response.json() as { users?: AdminUser[]; error?: string };
+    if (!response.ok) throw new Error(result.error || '操作失败。');
+    return result;
+  };
+  const load = async () => { setLoading(true); try { const result = await request('/api/users'); setUsers(result.users ?? []); } catch (error) { setMessage(error instanceof Error ? error.message : '用户加载失败。'); } finally { setLoading(false); } };
+  useEffect(() => { void load(); }, []);
+  async function addUser(event: FormEvent) { event.preventDefault(); setMessage(''); try { await request('/api/users', { method: 'POST', body: JSON.stringify(form) }); setForm({ username: '', displayName: '', password: '', role: 'author' }); setMessage('用户已添加，首次登录需要修改密码。'); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : '添加失败。'); } }
+  async function updateUser(user: AdminUser, next: Partial<AdminUser>) { setMessage(''); try { await request(`/api/users/${encodeURIComponent(user.id)}`, { method: 'PATCH', body: JSON.stringify(next) }); setMessage('用户权限已更新。'); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : '更新失败。'); } }
+  return <div className="user-management"><section className="manage-panel user-create"><header><div><h2>添加用户</h2><p>创建账号并分配权限，临时密码首次登录后必须修改。</p></div><Users /></header><form onSubmit={addUser}><Field label="登录账号"><Input value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} placeholder="3–32 位字母或数字" required /></Field><Field label="显示名称"><Input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="作者名称" required /></Field><Field label="用户角色"><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as AdminUser['role'] })}><option value="author">作者</option><option value="editor">编辑</option><option value="owner">超级管理员</option></select></Field><Field label="临时密码"><Input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="至少 10 位，包含字母和数字" required /></Field><Button type="submit"><Users />添加用户</Button></form></section>{message && <output className="status-message success">{message}</output>}<section className="manage-panel user-list"><header><div><h2>现有用户</h2><p>{users.length} 个后台账号</p></div><Button variant="outline" onClick={() => void load()}><RefreshCw />刷新</Button></header>{loading ? <div className="list-empty"><LoaderCircle className="spin" /></div> : users.map((user) => <article key={user.id}><span className="user-avatar">{user.displayName.slice(0, 1).toUpperCase()}</span><div><b>{user.displayName}</b><small>@{user.username} · {user.lastLoginAt ? `最近登录 ${new Date(user.lastLoginAt).toLocaleString('zh-CN')}` : '尚未登录'}{user.mustChangePassword ? ' · 待修改密码' : ''}</small></div><select value={user.role} disabled={user.id === currentUser.id} onChange={(event) => void updateUser(user, { role: event.target.value as AdminUser['role'] })}><option value="author">作者</option><option value="editor">编辑</option><option value="owner">超级管理员</option></select><button className={user.enabled ? 'user-enabled' : 'user-disabled'} disabled={user.id === currentUser.id} onClick={() => void updateUser(user, { enabled: !user.enabled })}>{user.enabled ? '已启用' : '已停用'}</button></article>)}</section></div>;
 }
 
 function slugify(value: string) {
