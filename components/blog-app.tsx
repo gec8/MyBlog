@@ -1630,7 +1630,6 @@ function AdminWorkspace({
     | 'drafts'
     | 'settings'
     | 'users'
-    | 'account'
   >('dashboard');
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('全部');
@@ -3442,13 +3441,6 @@ function AdminWorkspace({
                   用户
                 </button>
               )}
-              <button
-                className={panel === 'account' ? 'active' : ''}
-                onClick={() => setPanel('account')}
-              >
-                <KeyRound />
-                账号
-              </button>
             </nav>
             <div className="sidebar-bottom">
               <div className="connection-card">
@@ -3486,9 +3478,7 @@ function AdminWorkspace({
                         ? 'MEDIA'
                         : panel === 'users'
                           ? 'USERS'
-                          : panel === 'account'
-                            ? 'SECURITY'
-                            : panel === 'drafts'
+                          : panel === 'drafts'
                               ? 'DRAFTS'
                               : panel === 'settings'
                                 ? 'SETTINGS'
@@ -3503,9 +3493,7 @@ function AdminWorkspace({
                         ? '媒体资源'
                         : panel === 'users'
                           ? '用户管理'
-                          : panel === 'account'
-                            ? '账号安全'
-                            : panel === 'drafts'
+                          : panel === 'drafts'
                               ? '本机草稿'
                               : panel === 'settings'
                                 ? '博客设置'
@@ -3532,8 +3520,7 @@ function AdminWorkspace({
                   </Button>
                 )}
                 {panel !== 'settings' &&
-                  panel !== 'users' &&
-                  panel !== 'account' && (
+                  panel !== 'users' && (
                     <Button onClick={newPost}>
                       <FilePlus2 />
                       新文章
@@ -4913,14 +4900,6 @@ function AdminWorkspace({
 
             {panel === 'users' && currentUser.role === 'owner' && (
               <UserManagement token={authToken} currentUser={currentUser} onReauth={onAuthLogout} />
-            )}
-
-            {panel === 'account' && (
-              <AccountSecurity
-                token={authToken}
-                user={currentUser}
-                onComplete={onAuthLogout}
-              />
             )}
 
             {panel === 'settings' && (

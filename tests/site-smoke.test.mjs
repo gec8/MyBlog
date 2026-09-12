@@ -113,7 +113,6 @@ test("构建产物包含首页与健康信息", () => {
 
 test("后台账号、权限与安全会话完整", () => {
   assert.match(source, /function PasswordChange/);
-  assert.match(source, /function AccountSecurity/);
   assert.match(source, /两次输入的新密码不一致/);
   assert.match(source, /所有设备上的旧登录都会失效/);
   assert.match(source, /修改用户密码/);
