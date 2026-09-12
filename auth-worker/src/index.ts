@@ -2,6 +2,10 @@ interface Env {
   DB: D1Database;
   ALLOWED_ORIGIN: string;
   BOOTSTRAP_SECRET: string;
+  GITHUB_TOKEN: string;
+  GITHUB_OWNER: string;
+  GITHUB_REPO: string;
+  GITHUB_BRANCH: string;
 }
 
 type Role = 'owner' | 'editor' | 'author';
@@ -59,6 +63,34 @@ export default {
       }
       if (url.pathname === '/api/auth/password' && request.method === 'PATCH')
         return changePassword(request, env, auth.user, cors);
+      if (url.pathname === '/api/content/articles' && request.method === 'GET')
+        return listArticles(env, cors);
+      if (url.pathname === '/api/content/articles' && request.method === 'POST')
+        return submitArticle(request, env, auth.user, cors);
+      const articleMatch = url.pathname.match(/^\/api\/content\/articles\/([^/]+)$/);
+      if (articleMatch && request.method === 'DELETE') {
+        requireEditor(auth.user);
+        return removeArticle(request, env, auth.user, decodeURIComponent(articleMatch[1]), cors);
+      }
+      if (url.pathname === '/api/content/reviews' && request.method === 'GET')
+        return listReviews(env, auth.user, cors);
+      const reviewMatch = url.pathname.match(/^\/api\/content\/reviews\/([^/]+)$/);
+      if (reviewMatch && request.method === 'PATCH') {
+        requireEditor(auth.user);
+        return reviewArticle(request, env, auth.user, decodeURIComponent(reviewMatch[1]), cors);
+      }
+      if (url.pathname === '/api/content/settings' && request.method === 'PUT') {
+        requireOwner(auth.user);
+        return saveSiteSettings(request, env, auth.user, cors);
+      }
+      if (url.pathname === '/api/content/files' && request.method === 'GET')
+        return listRepositoryFiles(url, env, cors);
+      if (url.pathname === '/api/content/files' && request.method === 'POST')
+        return saveRepositoryFile(request, env, auth.user, cors);
+      if (url.pathname === '/api/content/files' && request.method === 'DELETE') {
+        requireEditor(auth.user);
+        return deleteRepositoryFile(request, env, auth.user, cors);
+      }
       if (url.pathname === '/api/users' && request.method === 'GET') {
         requireOwner(auth.user);
         const result = await env.DB.prepare(
@@ -130,6 +162,10 @@ class HttpError extends Error {
 function requireOwner(user: UserRow) {
   if (user.role !== 'owner')
     throw new HttpError(403, '只有超级管理员可以管理用户。');
+}
+function requireEditor(user: UserRow) {
+  if (user.role === 'author')
+    throw new HttpError(403, '只有编辑或超级管理员可以执行此操作。');
 }
 function corsHeaders(origin: string, allowed: string) {
   const valid = origin === allowed || origin === 'http://localhost:3000';
@@ -397,6 +433,154 @@ async function changePassword(
   ]);
   await audit(env, user.id, 'auth.password_changed', 'user', user.id, request);
   return json({ ok: true, relogin: true }, 200, cors);
+}
+
+type GitHubFile<T> = { data: T; sha: string };
+
+function githubHeaders(env: Env) {
+  if (!env.GITHUB_TOKEN) throw new HttpError(503, '发布服务尚未配置 GitHub 凭证。');
+  return {
+    Accept: 'application/vnd.github+json',
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    'Content-Type': 'application/json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'NekoPress-Publisher',
+  };
+}
+function githubContentUrl(env: Env, path: string) {
+  return `https://api.github.com/repos/${env.GITHUB_OWNER}/${env.GITHUB_REPO}/contents/${path}`;
+}
+function encodeGithub(value: string) {
+  return bytesToBase64(encoder.encode(value));
+}
+function decodeGithub(value: string) {
+  const raw = atob(value.replace(/\s/g, ''));
+  return new TextDecoder().decode(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
+}
+async function readGithubJson<T>(env: Env, path: string): Promise<GitHubFile<T>> {
+  const response = await fetch(`${githubContentUrl(env, path)}?ref=${encodeURIComponent(env.GITHUB_BRANCH)}`, { headers: githubHeaders(env) });
+  if (!response.ok) throw new HttpError(response.status === 404 ? 404 : 502, `无法读取 ${path}。`);
+  const file = await response.json<{ content: string; sha: string }>();
+  return { data: JSON.parse(decodeGithub(file.content)) as T, sha: file.sha };
+}
+async function writeGithubJson(env: Env, path: string, value: unknown, message: string, sha?: string) {
+  const response = await fetch(githubContentUrl(env, path), {
+    method: 'PUT', headers: githubHeaders(env),
+    body: JSON.stringify({ message, content: encodeGithub(`${JSON.stringify(value, null, 2)}\n`), branch: env.GITHUB_BRANCH, ...(sha ? { sha } : {}) }),
+  });
+  if (!response.ok) {
+    if (response.status === 409 || response.status === 422) throw new HttpError(409, '线上文章已被其他用户更新，请刷新后比较版本。');
+    throw new HttpError(502, 'GitHub 发布失败，请稍后重试。');
+  }
+}
+function articleValue(data: Record<string, unknown>) {
+  const post = data.post as Record<string, unknown> | undefined;
+  if (!post || !String(post.title ?? '').trim() || !String(post.slug ?? '').trim() || !String(post.content ?? '').trim())
+    throw new HttpError(400, '文章标题、链接和正文不能为空。');
+  return post;
+}
+async function listArticles(env: Env, cors: Record<string, string>) {
+  const current = await readGithubJson<Record<string, unknown>[]>(env, 'data/posts.json');
+  return json({ posts: current.data, sha: current.sha }, 200, cors);
+}
+async function publishArticle(env: Env, post: Record<string, unknown>, editingId: string | null, baseSha: string | null) {
+  const current = await readGithubJson<Record<string, unknown>[]>(env, 'data/posts.json');
+  if (baseSha && baseSha !== current.sha) throw new HttpError(409, '文章列表已有新版本，请刷新并比较后再发布。');
+  const original = editingId ? current.data.find((item) => String(item.id) === editingId) : undefined;
+  if (editingId && !original) throw new HttpError(409, '原文章已被删除或更改，请刷新后重试。');
+  const slug = String(post.slug);
+  if (current.data.some((item) => String(item.slug) === slug && String(item.id) !== editingId))
+    throw new HttpError(409, '文章链接已存在，请修改后再发布。');
+  const nextPost = { ...post, id: editingId || `${slug}-${Date.now()}`, date: original?.date || post.date };
+  const nextPosts = editingId ? current.data.map((item) => String(item.id) === editingId ? nextPost : item) : [nextPost, ...current.data];
+  let articleSha: string | undefined;
+  try { articleSha = (await readGithubJson(env, `data/posts/${slug}.json`)).sha; } catch { /* first independent article file */ }
+  await writeGithubJson(env, `data/posts/${slug}.json`, nextPost, `${editingId ? 'update' : 'publish'}: ${String(post.title)}`, articleSha);
+  await writeGithubJson(env, 'data/posts.json', nextPosts, `${editingId ? 'update' : 'publish'}: ${String(post.title)}`, current.sha);
+  const latest = await readGithubJson<Record<string, unknown>[]>(env, 'data/posts.json');
+  return { posts: nextPosts, post: nextPost, sha: latest.sha };
+}
+async function submitArticle(request: Request, env: Env, user: UserRow, cors: Record<string, string>) {
+  const data = await body(request); const post = articleValue(data);
+  const editingId = data.editingId ? String(data.editingId) : null;
+  const baseSha = data.baseSha ? String(data.baseSha) : null;
+  if (user.role === 'author') {
+    const reviewId = id(); const timestamp = now();
+    await env.DB.prepare('INSERT INTO article_reviews (id, article_id, slug, title, article_json, base_sha, status, author_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(reviewId, editingId, String(post.slug), String(post.title), JSON.stringify(post), baseSha, 'pending', user.id, timestamp, timestamp).run();
+    await audit(env, user.id, 'article.submitted', 'review', reviewId, request, String(post.title));
+    return json({ status: 'pending', reviewId }, 202, cors);
+  }
+  const result = await publishArticle(env, post, editingId, baseSha);
+  await audit(env, user.id, 'article.published', 'article', String(result.post.id), request, String(post.title));
+  return json({ status: 'published', ...result }, 200, cors);
+}
+async function listReviews(env: Env, user: UserRow, cors: Record<string, string>) {
+  const ownerFilter = user.role === 'author' ? 'WHERE r.author_user_id = ?' : '';
+  const query = `SELECT r.*, u.display_name AS author_name FROM article_reviews r JOIN users u ON u.id = r.author_user_id ${ownerFilter} ORDER BY r.created_at DESC LIMIT 100`;
+  const result = user.role === 'author' ? await env.DB.prepare(query).bind(user.id).all() : await env.DB.prepare(query).all();
+  return json({ reviews: result.results.map((row) => ({ id: row.id, articleId: row.article_id, slug: row.slug, title: row.title, post: JSON.parse(String(row.article_json)), baseSha: row.base_sha, status: row.status, authorName: row.author_name, note: row.review_note, createdAt: row.created_at })) }, 200, cors);
+}
+async function reviewArticle(request: Request, env: Env, user: UserRow, reviewId: string, cors: Record<string, string>) {
+  const data = await body(request); const action = String(data.action ?? '');
+  if (!['approve', 'reject'].includes(action)) throw new HttpError(400, '审核操作无效。');
+  const review = await env.DB.prepare('SELECT * FROM article_reviews WHERE id = ? AND status = ?').bind(reviewId, 'pending').first<Record<string, unknown>>();
+  if (!review) throw new HttpError(404, '待审核记录不存在。');
+  if (action === 'reject') {
+    await env.DB.prepare('UPDATE article_reviews SET status = ?, reviewer_user_id = ?, review_note = ?, updated_at = ? WHERE id = ?').bind('rejected', user.id, String(data.note ?? ''), now(), reviewId).run();
+    await audit(env, user.id, 'article.rejected', 'review', reviewId, request, String(review.title));
+    return json({ status: 'rejected' }, 200, cors);
+  }
+  const result = await publishArticle(env, JSON.parse(String(review.article_json)), review.article_id ? String(review.article_id) : null, review.base_sha ? String(review.base_sha) : null);
+  await env.DB.prepare('UPDATE article_reviews SET status = ?, reviewer_user_id = ?, review_note = ?, updated_at = ? WHERE id = ?').bind('approved', user.id, String(data.note ?? ''), now(), reviewId).run();
+  await audit(env, user.id, 'article.approved', 'review', reviewId, request, String(review.title));
+  return json({ status: 'approved', ...result }, 200, cors);
+}
+async function removeArticle(request: Request, env: Env, user: UserRow, articleId: string, cors: Record<string, string>) {
+  const current = await readGithubJson<Record<string, unknown>[]>(env, 'data/posts.json');
+  const target = current.data.find((item) => String(item.id) === articleId);
+  if (!target) throw new HttpError(404, '文章不存在。');
+  const next = current.data.filter((item) => String(item.id) !== articleId);
+  await writeGithubJson(env, 'data/posts.json', next, `delete: ${String(target.title)}`, current.sha);
+  await audit(env, user.id, 'article.deleted', 'article', articleId, request, String(target.title));
+  return json({ posts: next }, 200, cors);
+}
+async function saveSiteSettings(request: Request, env: Env, user: UserRow, cors: Record<string, string>) {
+  const data = await body(request); let sha: string | undefined;
+  try { sha = (await readGithubJson(env, 'data/settings.json')).sha; } catch { /* first settings file */ }
+  await writeGithubJson(env, 'data/settings.json', data.settings ?? {}, 'update: blog settings', sha);
+  await audit(env, user.id, 'settings.updated', 'site', env.GITHUB_REPO, request);
+  return json({ ok: true }, 200, cors);
+}
+function safeRepositoryPath(path: string) {
+  if (!/^(public\/(images|audio)\/[a-zA-Z0-9._-]+|public\/(images|audio))$/.test(path))
+    throw new HttpError(400, '媒体路径不安全。');
+  return path;
+}
+async function listRepositoryFiles(url: URL, env: Env, cors: Record<string, string>) {
+  const path = safeRepositoryPath(String(url.searchParams.get('path') ?? ''));
+  const response = await fetch(`${githubContentUrl(env, path)}?ref=${encodeURIComponent(env.GITHUB_BRANCH)}`, { headers: githubHeaders(env) });
+  if (response.status === 404) return json({ files: [] }, 200, cors);
+  if (!response.ok) throw new HttpError(502, '媒体目录读取失败。');
+  const files = await response.json();
+  return json({ files }, 200, cors);
+}
+async function saveRepositoryFile(request: Request, env: Env, user: UserRow, cors: Record<string, string>) {
+  const data = await body(request); const path = safeRepositoryPath(String(data.path ?? ''));
+  const content = String(data.content ?? '');
+  if (!content || content.length > 22_000_000) throw new HttpError(413, '媒体文件为空或超过上传限制。');
+  const response = await fetch(githubContentUrl(env, path), { method: 'PUT', headers: githubHeaders(env), body: JSON.stringify({ message: String(data.message ?? `upload: ${path}`), content, branch: env.GITHUB_BRANCH, ...(data.sha ? { sha: String(data.sha) } : {}) }) });
+  if (!response.ok) throw new HttpError(response.status === 409 ? 409 : 502, '媒体上传失败，请刷新后重试。');
+  const result = await response.json();
+  await audit(env, user.id, 'media.uploaded', 'media', path, request);
+  return json(result, 200, cors);
+}
+async function deleteRepositoryFile(request: Request, env: Env, user: UserRow, cors: Record<string, string>) {
+  const data = await body(request); const path = safeRepositoryPath(String(data.path ?? ''));
+  const response = await fetch(githubContentUrl(env, path), { method: 'DELETE', headers: githubHeaders(env), body: JSON.stringify({ message: String(data.message ?? `delete: ${path}`), sha: String(data.sha ?? ''), branch: env.GITHUB_BRANCH }) });
+  if (!response.ok) throw new HttpError(response.status === 409 ? 409 : 502, '媒体删除失败，请刷新后重试。');
+  await audit(env, user.id, 'media.deleted', 'media', path, request);
+  return json({ ok: true }, 200, cors);
 }
 
 async function createUser(

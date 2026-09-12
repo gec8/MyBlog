@@ -77,8 +77,8 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /onPostsChange/);
   assert.match(source, /function applyPosts/);
   assert.match(source, /function openSavedDraft/);
-  assert.match(source, /找不到要更新的原文章/);
-  assert.match(source, /String\(post\.id\) === String\(editingId\)/);
+  assert.match(authWorker, /原文章已被删除或更改/);
+  assert.match(authWorker, /String\(item\.id\) === editingId/);
   assert.match(source, /slugManuallyEdited/);
   assert.match(source, /function articleSlugInput/);
   assert.match(source, /粘贴完整文章网址自动识别/);
@@ -120,8 +120,9 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(source, /填写账号和登录密码/);
   assert.match(source, /新用户默认使用“作者”权限/);
   assert.match(source, /function UserManagement/);
-  assert.match(source, /配置发布权限/);
-  assert.match(source, /不影响后台账号登录/);
+  assert.match(source, /安全发布已启用/);
+  assert.match(source, /提交审核/);
+  assert.match(source, /文章审核/);
   assert.match(source, /deleteTarget/);
   assert.match(source, /删除用户？/);
   assert.match(source, /nekopress-auth-token/);
@@ -134,6 +135,10 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(authWorker, /password-reset/);
   assert.match(authWorker, /reauth/);
   assert.match(authWorker, /mustChangePassword: false/);
+  assert.match(authWorker, /requireEditor/);
+  assert.match(authWorker, /article_reviews/);
+  assert.match(authWorker, /data\/posts\/\$\{slug\}\.json/);
+  assert.match(authWorker, /baseSha !== current\.sha/);
   assert.match(authWorker, /async function deleteUser/);
   assert.match(authWorker, /不能删除当前登录账号/);
   assert.match(authSchema, /CREATE TABLE IF NOT EXISTS users/);

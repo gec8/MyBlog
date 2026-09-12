@@ -1266,6 +1266,18 @@ type AdminUser = {
   createdAt: string;
   lastLoginAt: string | null;
 };
+type ArticleReview = {
+  id: string;
+  articleId: string | null;
+  title: string;
+  slug: string;
+  post: Post;
+  baseSha: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  authorName: string;
+  note: string | null;
+  createdAt: string;
+};
 const authApi = 'https://nekopress-auth.wangshirufengabc.workers.dev';
 
 function Admin(props: {
@@ -1630,6 +1642,7 @@ function AdminWorkspace({
     | 'drafts'
     | 'settings'
     | 'users'
+    | 'reviews'
   >('dashboard');
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('全部');
@@ -1638,6 +1651,8 @@ function AdminWorkspace({
   );
   const [siteSettings, setSiteSettings] = useState(initialSettings);
   const [connected, setConnected] = useState(true);
+  const [contentSha, setContentSha] = useState('');
+  const [reviews, setReviews] = useState<ArticleReview[]>([]);
   const [mobilePreview, setMobilePreview] = useState(false);
   const [previewSize, setPreviewSize] = useState<
     'desktop' | 'tablet' | 'mobile'
@@ -1771,6 +1786,33 @@ function AdminWorkspace({
     }
   }, []);
 
+  async function contentRequest<T>(path: string, options: RequestInit = {}) {
+    const response = await fetch(`${authApi}${path}`, {
+      ...options,
+      headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json', ...options.headers },
+      cache: 'no-store',
+    });
+    const result = (await response.json()) as T & { error?: string };
+    if (!response.ok) throw new Error(result.error || '内容服务暂时不可用。');
+    return result;
+  }
+  async function syncServerArticles(showResult = false) {
+    try {
+      const result = await contentRequest<{ posts: Post[]; sha: string }>('/api/content/articles');
+      applyPosts(result.posts); setContentSha(result.sha);
+      if (showResult) { setState('success'); setMessage('已同步线上最新文章。'); }
+    } catch (error) {
+      if (showResult) { setState('error'); setMessage(error instanceof Error ? error.message : '同步失败。'); }
+    }
+  }
+  async function loadReviews() {
+    try {
+      const result = await contentRequest<{ reviews: ArticleReview[] }>('/api/content/reviews');
+      setReviews(result.reviews);
+    } catch (error) { setState('error'); setMessage(error instanceof Error ? error.message : '审核列表加载失败。'); }
+  }
+  useEffect(() => { void syncServerArticles(); }, [authToken]);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       localStorage.setItem('nekopress-draft', JSON.stringify(draft));
@@ -1817,6 +1859,10 @@ function AdminWorkspace({
   useEffect(() => {
     if (panel === 'media' && connected) void loadRepoMedia();
   }, [panel, connected]);
+
+  useEffect(() => {
+    if (panel === 'reviews') void loadReviews();
+  }, [panel]);
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -2141,24 +2187,14 @@ function AdminWorkspace({
       ];
       const results = await Promise.all(
         folders.map(async ({ folder, type }) => {
-          const query = new URLSearchParams({
-            ref: config.branch.trim(),
-            t: String(Date.now()),
-          });
-          const response = await fetch(
-            `${contentsApi(`public/${folder}`)}?${query}`,
-            { headers: headers(), cache: 'no-store' },
-          );
-          if (response.status === 404) return [];
-          if (!response.ok)
-            throw new Error(await githubError(response, '媒体目录读取失败。'));
-          const files = (await response.json()) as Array<{
+          const result = await contentRequest<{ files: Array<{
             name: string;
             path: string;
             sha: string;
             size: number;
             type: string;
-          }>;
+          }> }>(`/api/content/files?path=${encodeURIComponent(`public/${folder}`)}`);
+          const files = result.files;
           if (!Array.isArray(files)) return [];
           return files
             .filter((file) => file.type === 'file')
@@ -2218,27 +2254,14 @@ function AdminWorkspace({
         const name = mediaFileName(file.name, prepared.extension);
         const folder = type === 'audio' ? 'audio' : 'images';
         const path = `public/${folder}/${name}`;
-        const response = await fetch(contentsApi(path), {
-          method: 'PUT',
-          headers: { ...headers(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: `upload: ${name}`,
-            content: prepared.content,
-            branch: config.branch.trim(),
-          }),
-        });
-        if (!response.ok)
-          throw new Error(
-            await githubError(response, `${file.name} 上传失败。`),
-          );
-        const result = (await response.json()) as {
+        const result = await contentRequest<{
           content?: {
             name?: string;
             path?: string;
             sha?: string;
             size?: number;
           };
-        };
+        }>('/api/content/files', { method: 'POST', body: JSON.stringify({ path, message: `upload: ${name}`, content: prepared.content }) });
         const saved: RepoMedia = {
           name: result.content?.name || name,
           path: result.content?.path || path,
@@ -2276,16 +2299,9 @@ function AdminWorkspace({
       !window.confirm(`确定删除 ${item.name} 吗？GitHub 历史记录中仍可恢复。`)
     )
       return;
-    const response = await fetch(contentsApi(item.path), {
-      method: 'DELETE',
-      headers: { ...headers(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: `delete media: ${item.name}`,
-        sha: item.sha,
-        branch: config.branch.trim(),
-      }),
-    });
-    if (!response.ok) {
+    try {
+      await contentRequest('/api/content/files', { method: 'DELETE', body: JSON.stringify({ path: item.path, message: `delete media: ${item.name}`, sha: item.sha }) });
+    } catch {
       setState('error');
       setMessage('媒体删除失败，请同步后重试。');
       return;
@@ -2333,16 +2349,7 @@ function AdminWorkspace({
   }
   async function deleteRepoMediaWithoutConfirm(item: RepoMedia) {
     try {
-      const response = await fetch(contentsApi(item.path), {
-        method: 'DELETE',
-        headers: { ...headers(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: `delete media: ${item.name}`,
-          sha: item.sha,
-          branch: config.branch.trim(),
-        }),
-      });
-      if (!response.ok) return false;
+      await contentRequest('/api/content/files', { method: 'DELETE', body: JSON.stringify({ path: item.path, message: `delete media: ${item.name}`, sha: item.sha }) });
       setRepoMedia((current) =>
         current.filter((file) => file.path !== item.path),
       );
@@ -2668,15 +2675,7 @@ function AdminWorkspace({
   async function refreshPosts() {
     setState('connecting');
     setMessage('正在读取仓库中的最新文章…');
-    try {
-      const current = await readRepoFile<Post[]>('data/posts.json');
-      applyPosts(current.data);
-      setState('success');
-      setMessage(`已同步 ${current.data.length} 篇文章。`);
-    } catch (error) {
-      setState('error');
-      setMessage(error instanceof Error ? error.message : '同步失败。');
-    }
+    await syncServerArticles(true);
   }
 
   function insertMarkdown(
@@ -2774,18 +2773,7 @@ function AdminWorkspace({
       const prepared = await prepareImage(file);
       const extension = prepared.extension;
       const name = mediaFileName(file.name, extension);
-      const body = JSON.stringify({
-        message: `upload: ${name}`,
-        content: prepared.content,
-        branch: config.branch.trim(),
-      });
-      const response = await fetch(contentsApi(`public/images/${name}`), {
-        method: 'PUT',
-        headers: { ...headers(), 'Content-Type': 'application/json' },
-        body,
-      });
-      if (!response.ok)
-        throw new Error('图片上传失败，请检查 Contents 写入权限。');
+      await contentRequest('/api/content/files', { method: 'POST', body: JSON.stringify({ path: `public/images/${name}`, message: `upload: ${name}`, content: prepared.content }) });
       updateDraft({
         coverImage: `./images/${name}`,
         coverCredit: '',
@@ -2873,11 +2861,6 @@ function AdminWorkspace({
   }
 
   async function usePexelsPhoto(photo: PexelsPhoto) {
-    if (!connected || !token.trim()) {
-      setState('error');
-      setMessage('请先连接 GitHub 仓库，再保存网络图片。');
-      return;
-    }
     setPexelsLoading(true);
     setState('uploading');
     setMessage('正在下载、压缩并保存封面…');
@@ -2913,45 +2896,8 @@ function AdminWorkspace({
       );
       const name = `pexels-${photo.id}.${prepared.extension.toLowerCase()}`;
       const path = `public/images/${name}`;
-      const existing = await fetch(
-        `${contentsApi(path)}?ref=${encodeURIComponent(config.branch.trim())}&t=${Date.now()}`,
-        { headers: headers(), cache: 'no-store' },
-      );
-      let saved: RepoMedia;
-      if (existing.ok) {
-        const file = (await existing.json()) as { sha: string; size: number };
-        saved = {
-          name,
-          path,
-          sha: file.sha,
-          size: file.size,
-          type: 'image',
-          url: `./images/${name}`,
-        };
-      } else {
-        const response = await fetch(contentsApi(path), {
-          method: 'PUT',
-          headers: { ...headers(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: `upload: ${name}`,
-            content: prepared.content,
-            branch: config.branch.trim(),
-          }),
-        });
-        if (!response.ok)
-          throw new Error(await githubError(response, '网络封面保存失败。'));
-        const result = (await response.json()) as {
-          content?: { sha?: string; size?: number };
-        };
-        saved = {
-          name,
-          path,
-          sha: result.content?.sha || '',
-          size: result.content?.size || blob.size,
-          type: 'image',
-          url: `./images/${name}`,
-        };
-      }
+      const result = await contentRequest<{ content?: { sha?: string; size?: number } }>('/api/content/files', { method: 'POST', body: JSON.stringify({ path, message: `upload: ${name}`, content: prepared.content }) });
+      const saved: RepoMedia = { name, path, sha: result.content?.sha || '', size: result.content?.size || blob.size, type: 'image', url: `./images/${name}` };
       setRepoMedia((current) => [
         saved,
         ...current.filter((item) => item.path !== path),
@@ -3000,17 +2946,7 @@ function AdminWorkspace({
     try {
       const prepared = await prepareImage(file);
       const name = mediaFileName(file.name, prepared.extension);
-      const body = JSON.stringify({
-        message: `upload: ${name}`,
-        content: prepared.content,
-        branch: config.branch.trim(),
-      });
-      const response = await fetch(contentsApi(`public/images/${name}`), {
-        method: 'PUT',
-        headers: { ...headers(), 'Content-Type': 'application/json' },
-        body,
-      });
-      if (!response.ok) throw new Error('正文图片上传失败。');
+      await contentRequest('/api/content/files', { method: 'POST', body: JSON.stringify({ path: `public/images/${name}`, message: `upload: ${name}`, content: prepared.content }) });
       updateDraft({
         content: `${draft.content.trimEnd()}\n\n![${file.name}](./images/${name})\n`,
       });
@@ -3043,18 +2979,7 @@ function AdminWorkspace({
             };
       const name = mediaFileName(file.name, prepared.extension);
       const folder = kind === 'audio' ? 'audio' : 'images';
-      const body = JSON.stringify({
-        message: `upload: ${name}`,
-        content: prepared.content,
-        branch: config.branch.trim(),
-      });
-      const response = await fetch(contentsApi(`public/${folder}/${name}`), {
-        method: 'PUT',
-        headers: { ...headers(), 'Content-Type': 'application/json' },
-        body,
-      });
-      if (!response.ok)
-        throw new Error('媒体文件上传失败，请检查仓库写入权限。');
+      await contentRequest('/api/content/files', { method: 'POST', body: JSON.stringify({ path: `public/${folder}/${name}`, message: `upload: ${name}`, content: prepared.content }) });
       const audioTitle =
         file.name
           .replace(/\.[^.]+$/, '')
@@ -3077,15 +3002,12 @@ function AdminWorkspace({
     if (
       !config.owner ||
       !config.repo ||
-      !token ||
       !draft.title.trim() ||
       !draft.content.trim()
     ) {
       setState('error');
       setMessage(
-        !token
-          ? '文章已保留在草稿中，请先配置 GitHub 发布权限再发布。'
-          : '请补全仓库信息、标题与正文。',
+        '请补全仓库信息、标题与正文。',
       );
       return;
     }
@@ -3107,40 +3029,16 @@ function AdminWorkspace({
     setDeploymentStage(0);
     setMessage('');
     try {
-      const previousRun = await latestRun();
-      const current = await readRepoFile<Post[]>('data/posts.json');
-      const originalPost = editingId
-        ? current.data.find((post) => String(post.id) === String(editingId))
-        : undefined;
-      if (editingId && !originalPost)
-        throw new Error(
-          '找不到要更新的原文章。请返回文章管理同步列表后，再重新点击编辑。',
-        );
-      if (
-        current.data.some(
-          (post) =>
-            post.slug === preview.slug && String(post.id) !== String(editingId),
-        )
-      )
-        throw new Error('已有文章使用相同标题或链接，请修改标题后再发布。');
-      const nextPost = {
-        ...preview,
-        id: editingId ?? `${preview.slug}-${Date.now()}`,
-        date: originalPost?.date ?? preview.date,
-      };
-      const nextPosts = editingId
-        ? current.data.map((post) =>
-            String(post.id) === String(editingId) ? nextPost : post,
-          )
-        : [nextPost, ...current.data];
-      await writeRepoFile(
-        'data/posts.json',
-        nextPosts,
-        editingId ? `update: ${draft.title}` : `publish: ${draft.title}`,
-        current.sha,
-      );
-      applyPosts(nextPosts);
-      setEditingId(nextPost.id);
+      const result = await contentRequest<{ status: 'pending' | 'published'; posts?: Post[]; post?: Post; sha?: string }>('/api/content/articles', {
+        method: 'POST', body: JSON.stringify({ post: preview, editingId, baseSha: contentSha }),
+      });
+      if (result.status === 'pending') {
+        setState('success'); setMessage('文章已提交审核，编辑审核通过后会自动发布。');
+        await loadReviews(); return;
+      }
+      if (result.posts) applyPosts(result.posts);
+      if (result.post) setEditingId(result.post.id);
+      if (result.sha) setContentSha(result.sha);
       setDirty(false);
       localStorage.removeItem('nekopress-draft');
       setSavedDrafts((currentDrafts) => {
@@ -3150,7 +3048,8 @@ function AdminWorkspace({
         localStorage.setItem('nekopress-drafts', JSON.stringify(nextDrafts));
         return nextDrafts;
       });
-      await waitForDeployment(previousRun?.id ?? null);
+      setState('success');
+      setMessage('文章已安全发布，网站正在更新。');
     } catch (error) {
       setState('error');
       setMessage(
@@ -3164,23 +3063,30 @@ function AdminWorkspace({
     setDeploymentStage(0);
     setMessage('正在删除文章…');
     try {
-      const previousRun = await latestRun();
-      const current = await readRepoFile<Post[]>('data/posts.json');
-      const next = current.data.filter(
-        (item) => String(item.id) !== String(post.id),
-      );
-      await writeRepoFile(
-        'data/posts.json',
-        next,
-        `delete: ${post.title}`,
-        current.sha,
-      );
-      applyPosts(next);
+      const result = await contentRequest<{ posts: Post[] }>(`/api/content/articles/${encodeURIComponent(post.id)}`, { method: 'DELETE' });
+      applyPosts(result.posts);
       if (String(editingId) === String(post.id)) newPost();
-      await waitForDeployment(previousRun?.id ?? null);
+      setState('success'); setMessage('文章已删除，网站正在更新。');
     } catch (error) {
       setState('error');
       setMessage(error instanceof Error ? error.message : '删除失败。');
+    }
+  }
+
+  async function decideReview(review: ArticleReview, action: 'approve' | 'reject') {
+    setState('publishing');
+    setMessage(action === 'approve' ? '正在审核并发布文章…' : '正在退回文章…');
+    try {
+      const result = await contentRequest<{ posts?: Post[]; sha?: string }>(`/api/content/reviews/${encodeURIComponent(review.id)}`, {
+        method: 'PATCH', body: JSON.stringify({ action }),
+      });
+      if (result.posts) applyPosts(result.posts);
+      if (result.sha) setContentSha(result.sha);
+      await loadReviews();
+      setState('success');
+      setMessage(action === 'approve' ? '审核通过，文章已发布。' : '文章已退回作者。');
+    } catch (error) {
+      setState('error'); setMessage(error instanceof Error ? error.message : '审核操作失败。');
     }
   }
 
@@ -3189,20 +3095,8 @@ function AdminWorkspace({
     setDeploymentStage(0);
     setMessage('正在保存博客设置…');
     try {
-      const previousRun = await latestRun();
-      let sha: string | undefined;
-      try {
-        sha = (await readRepoFile<SiteSettings>('data/settings.json')).sha;
-      } catch {
-        /* first settings file */
-      }
-      await writeRepoFile(
-        'data/settings.json',
-        siteSettings,
-        'update: blog settings',
-        sha,
-      );
-      await waitForDeployment(previousRun?.id ?? null);
+      await contentRequest('/api/content/settings', { method: 'PUT', body: JSON.stringify({ settings: siteSettings }) });
+      setState('success'); setMessage('网站设置已安全保存，正在更新。');
     } catch (error) {
       setState('error');
       setMessage(error instanceof Error ? error.message : '设置保存失败。');
@@ -3244,9 +3138,8 @@ function AdminWorkspace({
           Neko<span>Press</span>
         </button>
         <div>
-          <span className={token ? 'connected-chip' : 'connected-chip is-limited'}>
-            {token ? <CheckCircle2 /> : <LockKeyhole />}
-            {token ? `已连接 ${config.owner}/${config.repo}` : '编辑模式'}
+          <span className="connected-chip">
+            <CheckCircle2 /> 安全发布已启用
           </span>
           <Button variant="ghost" onClick={() => go()}>
             <LogOut />
@@ -3430,6 +3323,10 @@ function AdminWorkspace({
                 <Save />
                 草稿 <span>{savedDrafts.length}</span>
               </button>
+              <button className={panel === 'reviews' ? 'active' : ''} onClick={() => setPanel('reviews')}>
+                <CheckCircle2 />
+                审核 <span>{reviews.filter((item) => item.status === 'pending').length}</span>
+              </button>
               <button
                 className={panel === 'settings' ? 'active' : ''}
                 onClick={() => setPanel('settings')}
@@ -3451,7 +3348,7 @@ function AdminWorkspace({
               <div className="connection-card">
                 <span>
                   <i />
-                  {token ? '仓库已连接' : '编辑模式'}
+                  安全发布服务
                 </span>
                 <b>{config.owner}/{config.repo} · {config.branch}</b>
                 <p>
@@ -3464,10 +3361,6 @@ function AdminWorkspace({
                       : '作者'}
                 </p>
               </div>
-              <button onClick={() => setConnected(false)}>
-                <GitBranch />
-                {token ? '更新发布权限' : '配置发布权限'}
-              </button>
               <button onClick={onAuthLogout}>
                 <LogOut />
                 退出账号
@@ -3483,6 +3376,8 @@ function AdminWorkspace({
                     ? 'OVERVIEW'
                     : panel === 'posts'
                       ? 'CONTENT'
+                      : panel === 'reviews'
+                        ? 'REVIEW'
                       : panel === 'media'
                         ? 'MEDIA'
                         : panel === 'users'
@@ -3498,6 +3393,8 @@ function AdminWorkspace({
                     ? `晚上好，${siteSettings.author}`
                     : panel === 'posts'
                       ? '文章管理'
+                      : panel === 'reviews'
+                        ? '文章审核'
                       : panel === 'media'
                         ? '媒体资源'
                         : panel === 'users'
@@ -3528,8 +3425,7 @@ function AdminWorkspace({
                     {focusMode ? '退出专注' : '专注模式'}
                   </Button>
                 )}
-                {panel !== 'settings' &&
-                  panel !== 'users' && (
+                {panel !== 'settings' && panel !== 'users' && panel !== 'reviews' && (
                     <Button onClick={newPost}>
                       <FilePlus2 />
                       新文章
@@ -3728,13 +3624,7 @@ function AdminWorkspace({
                               <Pencil />
                               编辑
                             </button>
-                            <button
-                              className="danger"
-                              onClick={() => setDeleteTarget(post)}
-                            >
-                              <Trash2 />
-                              删除
-                            </button>
+                            {currentUser.role !== 'author' && <button className="danger" onClick={() => setDeleteTarget(post)}><Trash2 />删除</button>}
                           </div>
                         </article>
                       ))
@@ -3753,6 +3643,23 @@ function AdminWorkspace({
               </>
             )}
 
+            {panel === 'reviews' && (
+              <section className="manage-panel review-panel">
+                <header>
+                  <div><h2>{currentUser.role === 'author' ? '我的提交' : '待审核文章'}</h2><p>{currentUser.role === 'author' ? '查看文章审核进度。' : '审核作者提交的文章，确认后发布到网站。'}</p></div>
+                  <Button variant="outline" onClick={() => void loadReviews()}><RefreshCw />刷新</Button>
+                </header>
+                <div className="review-list">
+                  {reviews.length ? reviews.map((review) => (
+                    <article key={review.id}>
+                      <span className={`review-status ${review.status}`}>{review.status === 'pending' ? '待审核' : review.status === 'approved' ? '已通过' : '已退回'}</span>
+                      <div><b>{review.title}</b><small>{review.authorName} · {new Date(review.createdAt).toLocaleString('zh-CN')}</small></div>
+                      {currentUser.role !== 'author' && review.status === 'pending' && <div className="review-actions"><button onClick={() => void decideReview(review, 'reject')}>退回</button><button onClick={() => void decideReview(review, 'approve')}><CheckCircle2 />通过并发布</button></div>}
+                    </article>
+                  )) : <div className="list-empty"><CheckCircle2 /><p>暂时没有审核记录</p></div>}
+                </div>
+              </section>
+            )}
             {panel === 'media' && (
               <section
                 className={`manage-panel media-library ${managingMedia ? 'is-managing' : ''}`}
@@ -4792,6 +4699,8 @@ function AdminWorkspace({
                         )}{' '}
                         {state === 'publishing'
                           ? '正在提交…'
+                          : currentUser.role === 'author'
+                            ? '提交审核'
                           : editingId
                             ? '更新文章'
                             : '发布文章'}
