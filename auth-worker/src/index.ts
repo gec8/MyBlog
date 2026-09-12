@@ -91,6 +91,24 @@ export default {
         requireEditor(auth.user);
         return deleteRepositoryFile(request, env, auth.user, cors);
       }
+      if (url.pathname === '/api/drafts' && request.method === 'GET')
+        return listDrafts(env, auth.user, cors);
+      if (url.pathname === '/api/drafts' && request.method === 'PUT')
+        return saveDraft(request, env, auth.user, cors);
+      const draftMatch = url.pathname.match(/^\/api\/drafts\/([^/]+)$/);
+      if (draftMatch && request.method === 'DELETE')
+        return removeDraft(request, env, auth.user, decodeURIComponent(draftMatch[1]), cors);
+      if (url.pathname === '/api/preferences' && request.method === 'GET')
+        return getPreferences(env, auth.user, cors);
+      if (url.pathname === '/api/preferences' && request.method === 'PUT')
+        return savePreferences(request, env, auth.user, cors);
+      if (url.pathname === '/api/snapshots' && request.method === 'GET')
+        return listSnapshots(env, auth.user, cors);
+      const snapshotMatch = url.pathname.match(/^\/api\/snapshots\/([^/]+)\/restore$/);
+      if (snapshotMatch && request.method === 'POST') {
+        requireEditor(auth.user);
+        return restoreSnapshot(request, env, auth.user, decodeURIComponent(snapshotMatch[1]), cors);
+      }
       if (url.pathname === '/api/users' && request.method === 'GET') {
         requireOwner(auth.user);
         const result = await env.DB.prepare(
@@ -468,10 +486,7 @@ async function writeGithubJson(env: Env, path: string, value: unknown, message: 
     method: 'PUT', headers: githubHeaders(env),
     body: JSON.stringify({ message, content: encodeGithub(`${JSON.stringify(value, null, 2)}\n`), branch: env.GITHUB_BRANCH, ...(sha ? { sha } : {}) }),
   });
-  if (!response.ok) {
-    if (response.status === 409 || response.status === 422) throw new HttpError(409, '线上文章已被其他用户更新，请刷新后比较版本。');
-    throw new HttpError(502, 'GitHub 发布失败，请稍后重试。');
-  }
+  if (!response.ok) throw await githubHttpError(response, 'GitHub 发布失败');
 }
 function articleValue(data: Record<string, unknown>) {
   const post = data.post as Record<string, unknown> | undefined;
@@ -500,6 +515,11 @@ async function publishArticle(env: Env, post: Record<string, unknown>, editingId
   const latest = await readGithubJson<Record<string, unknown>[]>(env, 'data/posts.json');
   return { posts: nextPosts, post: nextPost, sha: latest.sha };
 }
+async function createSnapshot(env: Env, userId: string, kind: 'article' | 'settings', targetId: string | null, title: string, payload: unknown) {
+  await env.DB.prepare('INSERT INTO content_snapshots (id, kind, target_id, title, payload_json, actor_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(id(), kind, targetId, title, JSON.stringify(payload), userId, now()).run();
+  await env.DB.prepare('DELETE FROM content_snapshots WHERE id IN (SELECT id FROM content_snapshots ORDER BY created_at DESC LIMIT -1 OFFSET 100)').run();
+}
 async function submitArticle(request: Request, env: Env, user: UserRow, cors: Record<string, string>) {
   const data = await body(request); const post = articleValue(data);
   const editingId = data.editingId ? String(data.editingId) : null;
@@ -510,6 +530,11 @@ async function submitArticle(request: Request, env: Env, user: UserRow, cors: Re
       .bind(reviewId, editingId, String(post.slug), String(post.title), JSON.stringify(post), baseSha, 'pending', user.id, timestamp, timestamp).run();
     await audit(env, user.id, 'article.submitted', 'review', reviewId, request, String(post.title));
     return json({ status: 'pending', reviewId }, 202, cors);
+  }
+  if (editingId) {
+    const current = await readGithubJson<Record<string, unknown>[]>(env, 'data/posts.json');
+    const original = current.data.find((item) => String(item.id) === editingId);
+    if (original) await createSnapshot(env, user.id, 'article', editingId, String(original.title ?? '文章备份'), original);
   }
   const result = await publishArticle(env, post, editingId, baseSha);
   await audit(env, user.id, 'article.published', 'article', String(result.post.id), request, String(post.title));
@@ -531,6 +556,11 @@ async function reviewArticle(request: Request, env: Env, user: UserRow, reviewId
     await audit(env, user.id, 'article.rejected', 'review', reviewId, request, String(review.title));
     return json({ status: 'rejected' }, 200, cors);
   }
+  if (review.article_id) {
+    const current = await readGithubJson<Record<string, unknown>[]>(env, 'data/posts.json');
+    const original = current.data.find((item) => String(item.id) === String(review.article_id));
+    if (original) await createSnapshot(env, user.id, 'article', String(review.article_id), String(original.title ?? '文章备份'), original);
+  }
   const result = await publishArticle(env, JSON.parse(String(review.article_json)), review.article_id ? String(review.article_id) : null, review.base_sha ? String(review.base_sha) : null);
   await env.DB.prepare('UPDATE article_reviews SET status = ?, reviewer_user_id = ?, review_note = ?, updated_at = ? WHERE id = ?').bind('approved', user.id, String(data.note ?? ''), now(), reviewId).run();
   await audit(env, user.id, 'article.approved', 'review', reviewId, request, String(review.title));
@@ -540,6 +570,7 @@ async function removeArticle(request: Request, env: Env, user: UserRow, articleI
   const current = await readGithubJson<Record<string, unknown>[]>(env, 'data/posts.json');
   const target = current.data.find((item) => String(item.id) === articleId);
   if (!target) throw new HttpError(404, '文章不存在。');
+  await createSnapshot(env, user.id, 'article', articleId, String(target.title ?? '已删除文章'), target);
   const next = current.data.filter((item) => String(item.id) !== articleId);
   await writeGithubJson(env, 'data/posts.json', next, `delete: ${String(target.title)}`, current.sha);
   await audit(env, user.id, 'article.deleted', 'article', articleId, request, String(target.title));
@@ -547,7 +578,7 @@ async function removeArticle(request: Request, env: Env, user: UserRow, articleI
 }
 async function saveSiteSettings(request: Request, env: Env, user: UserRow, cors: Record<string, string>) {
   const data = await body(request); let sha: string | undefined;
-  try { sha = (await readGithubJson(env, 'data/settings.json')).sha; } catch { /* first settings file */ }
+  try { const current = await readGithubJson<Record<string, unknown>>(env, 'data/settings.json'); sha = current.sha; await createSnapshot(env, user.id, 'settings', 'site', '网站设置', current.data); } catch { /* first settings file */ }
   await writeGithubJson(env, 'data/settings.json', data.settings ?? {}, 'update: blog settings', sha);
   await audit(env, user.id, 'settings.updated', 'site', env.GITHUB_REPO, request);
   return json({ ok: true }, 200, cors);
@@ -569,9 +600,17 @@ async function saveRepositoryFile(request: Request, env: Env, user: UserRow, cor
   const data = await body(request); const path = safeRepositoryPath(String(data.path ?? ''));
   const content = String(data.content ?? '');
   if (!content || content.length > 22_000_000) throw new HttpError(413, '媒体文件为空或超过上传限制。');
+  const contentHash = String(data.contentHash ?? '');
+  if (contentHash && !data.replace) {
+    const duplicate = await env.DB.prepare('SELECT * FROM media_assets WHERE content_hash = ? LIMIT 1').bind(contentHash).first<Record<string, unknown>>();
+    if (duplicate) return json({ deduplicated: true, content: { name: duplicate.name, path: duplicate.path, size: duplicate.size, sha: '' } }, 200, cors);
+  }
   const response = await fetch(githubContentUrl(env, path), { method: 'PUT', headers: githubHeaders(env), body: JSON.stringify({ message: String(data.message ?? `upload: ${path}`), content, branch: env.GITHUB_BRANCH, ...(data.sha ? { sha: String(data.sha) } : {}) }) });
-  if (!response.ok) throw new HttpError(response.status === 409 ? 409 : 502, '媒体上传失败，请刷新后重试。');
-  const result = await response.json();
+  if (!response.ok) throw await githubHttpError(response, '媒体上传失败');
+  const result = await response.json<Record<string, unknown>>();
+  const media = result.content as Record<string, unknown> | undefined;
+  await env.DB.prepare('INSERT OR REPLACE INTO media_assets (path, content_hash, name, media_type, size, uploader_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(String(media?.path ?? path), contentHash || null, String(media?.name ?? path.split('/').pop()), path.includes('/audio/') ? 'audio' : 'image', Number(media?.size ?? 0), user.id, now()).run();
   await audit(env, user.id, 'media.uploaded', 'media', path, request);
   return json(result, 200, cors);
 }
@@ -579,8 +618,70 @@ async function deleteRepositoryFile(request: Request, env: Env, user: UserRow, c
   const data = await body(request); const path = safeRepositoryPath(String(data.path ?? ''));
   const response = await fetch(githubContentUrl(env, path), { method: 'DELETE', headers: githubHeaders(env), body: JSON.stringify({ message: String(data.message ?? `delete: ${path}`), sha: String(data.sha ?? ''), branch: env.GITHUB_BRANCH }) });
   if (!response.ok) throw new HttpError(response.status === 409 ? 409 : 502, '媒体删除失败，请刷新后重试。');
+  await env.DB.prepare('DELETE FROM media_assets WHERE path = ?').bind(path).run();
   await audit(env, user.id, 'media.deleted', 'media', path, request);
   return json({ ok: true }, 200, cors);
+}
+async function listDrafts(env: Env, user: UserRow, cors: Record<string, string>) {
+  const result = await env.DB.prepare('SELECT id, draft_json, updated_at FROM cloud_drafts WHERE user_id = ? ORDER BY updated_at DESC LIMIT 30').bind(user.id).all();
+  return json({ drafts: result.results.map((row) => ({ id: row.id, savedAt: row.updated_at, draft: JSON.parse(String(row.draft_json)) })) }, 200, cors);
+}
+async function saveDraft(request: Request, env: Env, user: UserRow, cors: Record<string, string>) {
+  const data = await body(request); const draftId = String(data.id ?? '').trim(); const draft = data.draft as Record<string, unknown> | undefined;
+  if (!/^draft-[a-zA-Z0-9_-]+$/.test(draftId) || !draft) throw new HttpError(400, '草稿内容无效。');
+  const timestamp = now();
+  await env.DB.prepare('INSERT INTO cloud_drafts (id, user_id, title, draft_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id, user_id) DO UPDATE SET title = excluded.title, draft_json = excluded.draft_json, updated_at = excluded.updated_at')
+    .bind(draftId, user.id, String(draft.title ?? ''), JSON.stringify(draft), timestamp, timestamp).run();
+  return json({ ok: true, savedAt: timestamp }, 200, cors);
+}
+async function removeDraft(request: Request, env: Env, user: UserRow, draftId: string, cors: Record<string, string>) {
+  await env.DB.prepare('DELETE FROM cloud_drafts WHERE id = ? AND user_id = ?').bind(draftId, user.id).run();
+  await audit(env, user.id, 'draft.deleted', 'draft', draftId, request);
+  return json({ ok: true }, 200, cors);
+}
+async function getPreferences(env: Env, user: UserRow, cors: Record<string, string>) {
+  const row = await env.DB.prepare('SELECT preferences_json FROM user_preferences WHERE user_id = ?').bind(user.id).first<{ preferences_json: string }>();
+  return json({ preferences: row ? JSON.parse(row.preferences_json) : {} }, 200, cors);
+}
+async function savePreferences(request: Request, env: Env, user: UserRow, cors: Record<string, string>) {
+  const data = await body(request); const preferences = JSON.stringify(data.preferences ?? {});
+  if (preferences.length > 20_000) throw new HttpError(413, '个人设置内容过大。');
+  await env.DB.prepare('INSERT INTO user_preferences (user_id, preferences_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET preferences_json = excluded.preferences_json, updated_at = excluded.updated_at').bind(user.id, preferences, now()).run();
+  return json({ ok: true }, 200, cors);
+}
+async function listSnapshots(env: Env, user: UserRow, cors: Record<string, string>) {
+  requireEditor(user);
+  const result = await env.DB.prepare('SELECT s.id, s.kind, s.target_id, s.title, s.created_at, u.display_name AS actor_name FROM content_snapshots s LEFT JOIN users u ON u.id = s.actor_user_id ORDER BY s.created_at DESC LIMIT 50').all();
+  return json({ snapshots: result.results }, 200, cors);
+}
+async function restoreSnapshot(request: Request, env: Env, user: UserRow, snapshotId: string, cors: Record<string, string>) {
+  const snapshot = await env.DB.prepare('SELECT * FROM content_snapshots WHERE id = ?').bind(snapshotId).first<Record<string, unknown>>();
+  if (!snapshot) throw new HttpError(404, '备份不存在。');
+  const payload = JSON.parse(String(snapshot.payload_json));
+  if (snapshot.kind === 'settings') {
+    requireOwner(user); let sha: string | undefined;
+    try {
+      const current = await readGithubJson<Record<string, unknown>>(env, 'data/settings.json');
+      sha = current.sha;
+      await createSnapshot(env, user.id, 'settings', 'site', '恢复前的网站设置', current.data);
+    } catch { /* no settings */ }
+    await writeGithubJson(env, 'data/settings.json', payload, 'restore: site settings', sha);
+  } else {
+    const current = await readGithubJson<Record<string, unknown>[]>(env, 'data/posts.json');
+    const original = current.data.find((item) => String(item.id) === String(snapshot.target_id));
+    if (original) await createSnapshot(env, user.id, 'article', String(snapshot.target_id), `恢复前：${String(original.title ?? '文章')}`, original);
+    await publishArticle(env, payload, snapshot.target_id ? String(snapshot.target_id) : null, null);
+  }
+  await audit(env, user.id, 'snapshot.restored', String(snapshot.kind), String(snapshot.target_id ?? ''), request, String(snapshot.title));
+  return json({ ok: true }, 200, cors);
+}
+async function githubHttpError(response: Response, action: string) {
+  let detail = '';
+  try { detail = String((await response.json<Record<string, unknown>>()).message ?? ''); } catch { /* non-json error */ }
+  if (response.status === 401) return new HttpError(502, `${action}：发布凭证已失效，请联系超级管理员。`);
+  if (response.status === 403) return new HttpError(502, `${action}：GitHub 权限不足或请求过于频繁，请稍后重试。`);
+  if (response.status === 409 || response.status === 422) return new HttpError(409, `${action}：线上文件已更新，请刷新后重试。`);
+  return new HttpError(502, `${action}${detail ? `：${detail}` : '，请稍后重试。'}`);
 }
 
 async function createUser(

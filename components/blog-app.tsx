@@ -61,6 +61,7 @@ import {
   Trash2,
   Undo2,
   Upload,
+  UserRound,
   Users,
   X,
 } from 'lucide-react';
@@ -1278,6 +1279,7 @@ type ArticleReview = {
   note: string | null;
   createdAt: string;
 };
+type ContentSnapshot = { id: string; kind: 'article' | 'settings'; target_id: string | null; title: string; created_at: string; actor_name: string | null };
 const authApi = 'https://nekopress-auth.wangshirufengabc.workers.dev';
 
 function Admin(props: {
@@ -1643,6 +1645,7 @@ function AdminWorkspace({
     | 'settings'
     | 'users'
     | 'reviews'
+    | 'backups'
   >('dashboard');
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('全部');
@@ -1653,6 +1656,8 @@ function AdminWorkspace({
   const [connected, setConnected] = useState(true);
   const [contentSha, setContentSha] = useState('');
   const [reviews, setReviews] = useState<ArticleReview[]>([]);
+  const [snapshots, setSnapshots] = useState<ContentSnapshot[]>([]);
+  const [preferencesReady, setPreferencesReady] = useState(false);
   const [mobilePreview, setMobilePreview] = useState(false);
   const [previewSize, setPreviewSize] = useState<
     'desktop' | 'tablet' | 'mobile'
@@ -1710,6 +1715,7 @@ function AdminWorkspace({
   >('all');
   const [selectedMedia, setSelectedMedia] = useState<string[]>([]);
   const [managingMedia, setManagingMedia] = useState(false);
+  const [replaceMediaTarget, setReplaceMediaTarget] = useState<RepoMedia | null>(null);
   const [pexelsKey, setPexelsKey] = useState('');
   const [showPexels, setShowPexels] = useState(false);
   const [pexelsQuery, setPexelsQuery] = useState('自然');
@@ -1727,6 +1733,7 @@ function AdminWorkspace({
   const selectionRef = useRef({ start: 0, end: 0 });
   const settingsImportRef = useRef<HTMLInputElement>(null);
   const mediaUploadRef = useRef<HTMLInputElement>(null);
+  const mediaReplaceRef = useRef<HTMLInputElement>(null);
   const undoStack = useRef<string[]>([]);
   const redoStack = useRef<string[]>([]);
 
@@ -1787,13 +1794,35 @@ function AdminWorkspace({
   }, []);
 
   async function contentRequest<T>(path: string, options: RequestInit = {}) {
-    const response = await fetch(`${authApi}${path}`, {
-      ...options,
-      headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json', ...options.headers },
-      cache: 'no-store',
-    });
-    const result = (await response.json()) as T & { error?: string };
-    if (!response.ok) throw new Error(result.error || '内容服务暂时不可用。');
+    let response: Response;
+    try {
+      response = await fetch(`${authApi}${path}`, {
+        ...options,
+        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json', ...options.headers },
+        cache: 'no-store',
+      });
+    } catch {
+      throw new Error('网络连接失败。草稿仍保存在本机，请检查网络后重试。');
+    }
+    let result: T & { error?: string };
+    try { result = (await response.json()) as T & { error?: string }; }
+    catch { result = {} as T & { error?: string }; }
+    if (!response.ok) {
+      const fallback = response.status === 401
+        ? '登录已失效，请重新登录。'
+        : response.status === 403
+          ? '当前账号没有执行此操作的权限。'
+          : response.status === 409
+            ? '线上内容已更新，请刷新后再试。'
+            : response.status === 413
+              ? '提交的文件或内容超过大小限制。'
+              : response.status === 429
+                ? '操作过于频繁，请稍后再试。'
+                : response.status >= 500
+                  ? '发布服务暂时不可用，请稍后重试。'
+                  : '操作未完成，请检查填写内容。';
+      throw new Error(result.error || fallback);
+    }
     return result;
   }
   async function syncServerArticles(showResult = false) {
@@ -1811,7 +1840,38 @@ function AdminWorkspace({
       setReviews(result.reviews);
     } catch (error) { setState('error'); setMessage(error instanceof Error ? error.message : '审核列表加载失败。'); }
   }
-  useEffect(() => { void syncServerArticles(); }, [authToken]);
+  async function loadCloudDrafts() {
+    try {
+      const result = await contentRequest<{ drafts: SavedDraft[] }>('/api/drafts');
+      setSavedDrafts((local) => {
+        const merged = [...result.drafts, ...local.filter((item) => !result.drafts.some((cloud) => cloud.id === item.id))].slice(0, 30);
+        localStorage.setItem('nekopress-drafts', JSON.stringify(merged));
+        return merged;
+      });
+    } catch { /* retain local drafts while offline */ }
+  }
+  async function loadSnapshots() {
+    try { const result = await contentRequest<{ snapshots: ContentSnapshot[] }>('/api/snapshots'); setSnapshots(result.snapshots); }
+    catch (error) { setState('error'); setMessage(error instanceof Error ? error.message : '备份记录加载失败。'); }
+  }
+  async function restoreSnapshot(snapshot: ContentSnapshot) {
+    if (!window.confirm(`确定恢复“${snapshot.title}”吗？当前线上内容会先保留在历史记录中。`)) return;
+    setState('publishing'); setMessage('正在恢复备份…');
+    try { await contentRequest(`/api/snapshots/${encodeURIComponent(snapshot.id)}/restore`, { method: 'POST' }); await syncServerArticles(); setState('success'); setMessage('备份已恢复，网站正在更新。'); }
+    catch (error) { setState('error'); setMessage(error instanceof Error ? error.message : '恢复失败。'); }
+  }
+  useEffect(() => {
+    void syncServerArticles(); void loadCloudDrafts();
+    void contentRequest<{ preferences: { showOutline?: boolean; previewSize?: 'desktop' | 'tablet' | 'mobile' } }>('/api/preferences')
+      .then(({ preferences }) => { if (typeof preferences.showOutline === 'boolean') setShowOutline(preferences.showOutline); if (preferences.previewSize) setPreviewSize(preferences.previewSize); })
+      .catch(() => { /* use local defaults while offline */ })
+      .finally(() => setPreferencesReady(true));
+  }, [authToken]);
+  useEffect(() => {
+    if (!preferencesReady) return;
+    const timer = window.setTimeout(() => void contentRequest('/api/preferences', { method: 'PUT', body: JSON.stringify({ preferences: { showOutline, previewSize } }) }).catch(() => { /* retry after next preference change */ }), 500);
+    return () => window.clearTimeout(timer);
+  }, [showOutline, previewSize, preferencesReady]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1839,6 +1899,9 @@ function AdminWorkspace({
         localStorage.setItem('nekopress-drafts', JSON.stringify(next));
         return next;
       });
+      void contentRequest('/api/drafts', { method: 'PUT', body: JSON.stringify({ id: activeDraftId, draft }) })
+        .then(() => setDraftStatus('已自动保存 · 云端已同步'))
+        .catch(() => setDraftStatus('已保存到本机 · 云同步待重试'));
       setDraftStatus(
         `已自动保存 · ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`,
       );
@@ -1862,6 +1925,9 @@ function AdminWorkspace({
 
   useEffect(() => {
     if (panel === 'reviews') void loadReviews();
+  }, [panel]);
+  useEffect(() => {
+    if (panel === 'backups') void loadSnapshots();
   }, [panel]);
 
   useEffect(() => {
@@ -2255,27 +2321,32 @@ function AdminWorkspace({
         const folder = type === 'audio' ? 'audio' : 'images';
         const path = `public/${folder}/${name}`;
         const result = await contentRequest<{
+          deduplicated?: boolean;
           content?: {
             name?: string;
             path?: string;
             sha?: string;
             size?: number;
           };
-        }>('/api/content/files', { method: 'POST', body: JSON.stringify({ path, message: `upload: ${name}`, content: prepared.content }) });
+        }>('/api/content/files', { method: 'POST', body: JSON.stringify({ path, message: `upload: ${name}`, content: prepared.content, contentHash: await fileHash(file) }) });
+        const savedName = result.content?.name || name;
+        const savedPath = result.content?.path || path;
         const saved: RepoMedia = {
-          name: result.content?.name || name,
-          path: result.content?.path || path,
+          name: savedName,
+          path: savedPath,
           sha: result.content?.sha || '',
           size: result.content?.size || file.size,
           type,
-          url: `./${folder}/${name}`,
+          url: `./${savedPath.split('/').slice(-2).join('/')}`,
         };
         setRepoMedia((current) => [
           saved,
           ...current.filter((item) => item.path !== saved.path),
         ]);
         uploaded += 1;
-        setMessage(`已上传 ${uploaded}/${files.length}：${file.name}`);
+        setMessage(result.deduplicated
+          ? `已识别相同文件并复用：${savedName}`
+          : `已上传 ${uploaded}/${files.length}：${file.name}`);
       }
       setState('success');
       setMessage(`${uploaded} 个媒体文件已上传并加入列表。`);
@@ -2286,6 +2357,47 @@ function AdminWorkspace({
       );
     } finally {
       event.target.value = '';
+    }
+  }
+
+  async function replaceRepoMedia(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    const target = replaceMediaTarget;
+    event.target.value = '';
+    if (!file || !target) return;
+    const type = mediaTypeOf(file);
+    if (type !== target.type) {
+      setState('error');
+      setMessage(`请选择${target.type === 'image' ? '图片' : '音频'}文件进行替换。`);
+      return;
+    }
+    const oldExtension = target.name.split('.').pop()?.toLowerCase();
+    const newExtension = file.name.split('.').pop()?.toLowerCase();
+    if (!oldExtension || oldExtension !== newExtension) {
+      setState('error');
+      setMessage(`为保持文章链接有效，请选择同为 .${oldExtension || '原格式'} 的文件。`);
+      return;
+    }
+    const limit = type === 'audio' ? 15 * 1024 * 1024 : 5 * 1024 * 1024;
+    if (!file.size || file.size > limit) {
+      setState('error');
+      setMessage(`替换文件不能为空，且不能超过 ${type === 'audio' ? '15MB' : '5MB'}。`);
+      return;
+    }
+    setState('uploading');
+    setMessage(`正在替换 ${target.name}…`);
+    try {
+      const result = await contentRequest<{ content?: { sha?: string; size?: number } }>('/api/content/files', {
+        method: 'POST',
+        body: JSON.stringify({ path: target.path, message: `replace: ${target.name}`, content: await fileToBase64(file), contentHash: await fileHash(file), sha: target.sha, replace: true }),
+      });
+      setRepoMedia((current) => current.map((item) => item.path === target.path ? { ...item, sha: result.content?.sha || item.sha, size: result.content?.size || file.size, url: `${item.url}?v=${Date.now()}` } : item));
+      setReplaceMediaTarget(null);
+      setState('success');
+      setMessage('文件已替换，原有文章链接保持不变。');
+    } catch (error) {
+      setState('error');
+      setMessage(error instanceof Error ? error.message : '文件替换失败。');
     }
   }
 
@@ -2515,7 +2627,10 @@ function AdminWorkspace({
       localStorage.setItem('nekopress-drafts', JSON.stringify(next));
       return next;
     });
-    setDraftStatus('草稿已保存到本机');
+    setDraftStatus('草稿已保存，正在同步云端…');
+    void contentRequest('/api/drafts', { method: 'PUT', body: JSON.stringify({ id: activeDraftId, draft }) })
+      .then(() => setDraftStatus('草稿已保存到本机和云端'))
+      .catch(() => setDraftStatus('草稿已保存到本机，云同步待重试'));
     setDirty(false);
     const snapshot: SavedDraft = {
       id: `version-${Date.now()}`,
@@ -2536,6 +2651,7 @@ function AdminWorkspace({
     const next = savedDrafts.filter((draftItem) => draftItem.id !== item.id);
     setSavedDrafts(next);
     localStorage.setItem('nekopress-drafts', JSON.stringify(next));
+    void contentRequest(`/api/drafts/${encodeURIComponent(item.id)}`, { method: 'DELETE' }).catch(() => setMessage('本机草稿已删除，但云端删除失败，请稍后重试。'));
     setDeletedDraft({ item, index: Math.max(0, index) });
     setDraftDeleteTarget(null);
     if (activeDraftId === item.id) newPost();
@@ -2557,6 +2673,7 @@ function AdminWorkspace({
     );
     setSavedDrafts(next);
     localStorage.setItem('nekopress-drafts', JSON.stringify(next));
+    void contentRequest('/api/drafts', { method: 'PUT', body: JSON.stringify({ id: deletedDraft.item.id, draft: deletedDraft.item.draft }) });
     setDeletedDraft(null);
   }
   function duplicateDraft(item: SavedDraft) {
@@ -2572,6 +2689,7 @@ function AdminWorkspace({
     const next = [copy, ...savedDrafts].slice(0, 20);
     setSavedDrafts(next);
     localStorage.setItem('nekopress-drafts', JSON.stringify(next));
+    void contentRequest('/api/drafts', { method: 'PUT', body: JSON.stringify({ id: copy.id, draft: copy.draft }) });
   }
   function batchDeleteDrafts() {
     if (selectedDraftIds.length) setBatchDeletePending(true);
@@ -2585,6 +2703,7 @@ function AdminWorkspace({
     );
     setSavedDrafts(next);
     localStorage.setItem('nekopress-drafts', JSON.stringify(next));
+    for (const item of removed) void contentRequest(`/api/drafts/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
     if (selectedDraftIds.includes(activeDraftId)) newPost();
     setDeletedDraft(
       removed.length === 1
@@ -2773,9 +2892,10 @@ function AdminWorkspace({
       const prepared = await prepareImage(file);
       const extension = prepared.extension;
       const name = mediaFileName(file.name, extension);
-      await contentRequest('/api/content/files', { method: 'POST', body: JSON.stringify({ path: `public/images/${name}`, message: `upload: ${name}`, content: prepared.content }) });
+      const result = await contentRequest<{ content?: { name?: string } }>('/api/content/files', { method: 'POST', body: JSON.stringify({ path: `public/images/${name}`, message: `upload: ${name}`, content: prepared.content, contentHash: await fileHash(file) }) });
+      const savedName = result.content?.name || name;
       updateDraft({
-        coverImage: `./images/${name}`,
+        coverImage: `./images/${savedName}`,
         coverCredit: '',
         coverCreditUrl: '',
         coverPexelsId: undefined,
@@ -2896,8 +3016,10 @@ function AdminWorkspace({
       );
       const name = `pexels-${photo.id}.${prepared.extension.toLowerCase()}`;
       const path = `public/images/${name}`;
-      const result = await contentRequest<{ content?: { sha?: string; size?: number } }>('/api/content/files', { method: 'POST', body: JSON.stringify({ path, message: `upload: ${name}`, content: prepared.content }) });
-      const saved: RepoMedia = { name, path, sha: result.content?.sha || '', size: result.content?.size || blob.size, type: 'image', url: `./images/${name}` };
+      const result = await contentRequest<{ content?: { sha?: string; size?: number; path?: string; name?: string } }>('/api/content/files', { method: 'POST', body: JSON.stringify({ path, message: `upload: ${name}`, content: prepared.content, contentHash: `pexels-${photo.id}` }) });
+      const savedName = result.content?.name || name;
+      const savedPath = result.content?.path || path;
+      const saved: RepoMedia = { name: savedName, path: savedPath, sha: result.content?.sha || '', size: result.content?.size || blob.size, type: 'image', url: `./images/${savedName}` };
       setRepoMedia((current) => [
         saved,
         ...current.filter((item) => item.path !== path),
@@ -2946,9 +3068,10 @@ function AdminWorkspace({
     try {
       const prepared = await prepareImage(file);
       const name = mediaFileName(file.name, prepared.extension);
-      await contentRequest('/api/content/files', { method: 'POST', body: JSON.stringify({ path: `public/images/${name}`, message: `upload: ${name}`, content: prepared.content }) });
+      const result = await contentRequest<{ content?: { name?: string } }>('/api/content/files', { method: 'POST', body: JSON.stringify({ path: `public/images/${name}`, message: `upload: ${name}`, content: prepared.content, contentHash: await fileHash(file) }) });
+      const savedName = result.content?.name || name;
       updateDraft({
-        content: `${draft.content.trimEnd()}\n\n![${file.name}](./images/${name})\n`,
+        content: `${draft.content.trimEnd()}\n\n![${file.name}](./images/${savedName})\n`,
       });
       setState('success');
       setMessage('图片已插入正文末尾。');
@@ -2979,7 +3102,8 @@ function AdminWorkspace({
             };
       const name = mediaFileName(file.name, prepared.extension);
       const folder = kind === 'audio' ? 'audio' : 'images';
-      await contentRequest('/api/content/files', { method: 'POST', body: JSON.stringify({ path: `public/${folder}/${name}`, message: `upload: ${name}`, content: prepared.content }) });
+      const result = await contentRequest<{ content?: { name?: string } }>('/api/content/files', { method: 'POST', body: JSON.stringify({ path: `public/${folder}/${name}`, message: `upload: ${name}`, content: prepared.content, contentHash: await fileHash(file) }) });
+      const savedName = result.content?.name || name;
       const audioTitle =
         file.name
           .replace(/\.[^.]+$/, '')
@@ -2987,8 +3111,8 @@ function AdminWorkspace({
           .trim() || '文章音频';
       const markdown =
         kind === 'audio'
-          ? `\n\n@[audio:${audioTitle}](./audio/${name})\n`
-          : `\n\n![${file.name}](./images/${name})\n`;
+          ? `\n\n@[audio:${audioTitle}](./audio/${savedName})\n`
+          : `\n\n![${file.name}](./images/${savedName})\n`;
       updateDraft({ content: `${draft.content.trimEnd()}${markdown}` });
       setState('success');
       setMessage(`${kind === 'audio' ? '音频' : '图片'}已上传并插入正文。`);
@@ -3327,13 +3451,16 @@ function AdminWorkspace({
                 <CheckCircle2 />
                 审核 <span>{reviews.filter((item) => item.status === 'pending').length}</span>
               </button>
-              <button
-                className={panel === 'settings' ? 'active' : ''}
-                onClick={() => setPanel('settings')}
-              >
-                <Settings />
-                设置{settingsDirty && <i className="nav-dot" />}
-              </button>
+              {currentUser.role !== 'author' && <button className={panel === 'backups' ? 'active' : ''} onClick={() => setPanel('backups')}><RotateCcw />备份</button>}
+              {currentUser.role === 'owner' && (
+                <button
+                  className={panel === 'settings' ? 'active' : ''}
+                  onClick={() => setPanel('settings')}
+                >
+                  <Settings />
+                  设置{settingsDirty && <i className="nav-dot" />}
+                </button>
+              )}
               {currentUser.role === 'owner' && (
                 <button
                   className={panel === 'users' ? 'active' : ''}
@@ -3376,6 +3503,8 @@ function AdminWorkspace({
                     ? 'OVERVIEW'
                     : panel === 'posts'
                       ? 'CONTENT'
+                      : panel === 'backups'
+                        ? 'BACKUPS'
                       : panel === 'reviews'
                         ? 'REVIEW'
                       : panel === 'media'
@@ -3393,6 +3522,8 @@ function AdminWorkspace({
                     ? `晚上好，${siteSettings.author}`
                     : panel === 'posts'
                       ? '文章管理'
+                      : panel === 'backups'
+                        ? '版本与恢复'
                       : panel === 'reviews'
                         ? '文章审核'
                       : panel === 'media'
@@ -3400,7 +3531,7 @@ function AdminWorkspace({
                         : panel === 'users'
                           ? '用户管理'
                           : panel === 'drafts'
-                              ? '本机草稿'
+                              ? '云端草稿'
                               : panel === 'settings'
                                 ? '博客设置'
                                 : editingId
@@ -3425,7 +3556,7 @@ function AdminWorkspace({
                     {focusMode ? '退出专注' : '专注模式'}
                   </Button>
                 )}
-                {panel !== 'settings' && panel !== 'users' && panel !== 'reviews' && (
+                {panel !== 'settings' && panel !== 'users' && panel !== 'reviews' && panel !== 'backups' && (
                     <Button onClick={newPost}>
                       <FilePlus2 />
                       新文章
@@ -3643,6 +3774,14 @@ function AdminWorkspace({
               </>
             )}
 
+            {panel === 'backups' && (
+              <section className="manage-panel backup-panel">
+                <header><div><h2>自动备份</h2><p>更新、删除文章或修改设置前自动生成，可随时恢复。</p></div><Button variant="outline" onClick={() => void loadSnapshots()}><RefreshCw />刷新</Button></header>
+                <div className="backup-list">
+                  {snapshots.length ? snapshots.map((snapshot) => <article key={snapshot.id}><span><RotateCcw /></span><div><b>{snapshot.title}</b><small>{snapshot.kind === 'article' ? '文章' : '网站设置'} · {snapshot.actor_name || '系统'} · {new Date(snapshot.created_at).toLocaleString('zh-CN')}</small></div><Button variant="outline" onClick={() => void restoreSnapshot(snapshot)}>恢复此版本</Button></article>) : <div className="list-empty"><RotateCcw /><p>还没有自动备份</p></div>}
+                </div>
+              </section>
+            )}
             {panel === 'reviews' && (
               <section className="manage-panel review-panel">
                 <header>
@@ -3680,6 +3819,13 @@ function AdminWorkspace({
                       type="file"
                       accept="image/*,audio/*"
                       onChange={uploadMediaLibrary}
+                    />
+                    <input
+                      ref={mediaReplaceRef}
+                      hidden
+                      type="file"
+                      accept={replaceMediaTarget?.type === 'audio' ? 'audio/*' : 'image/*'}
+                      onChange={replaceRepoMedia}
                     />
                     <button
                       onClick={() => mediaUploadRef.current?.click()}
@@ -3840,6 +3986,15 @@ function AdminWorkspace({
                               <Link2 />
                               复制地址
                             </button>
+                            <button
+                              onClick={() => {
+                                setReplaceMediaTarget(item);
+                                window.setTimeout(() => mediaReplaceRef.current?.click(), 0);
+                              }}
+                            >
+                              <RefreshCw />
+                              替换原文件
+                            </button>
                             <a href={item.url} target="_blank" rel="noreferrer">
                               <ArrowUpRight />
                               查看原文件
@@ -3886,8 +4041,8 @@ function AdminWorkspace({
               >
                 <header>
                   <div>
-                    <h2>本机草稿</h2>
-                    <p>搜索、筛选和管理当前设备上的最近 20 份内容。</p>
+                    <h2>云端草稿</h2>
+                    <p>登录账号后跨设备同步；断网时仍会保存在当前设备。</p>
                   </div>
                   <span>
                     <b>
@@ -4820,7 +4975,7 @@ function AdminWorkspace({
               <UserManagement token={authToken} currentUser={currentUser} onReauth={onAuthLogout} />
             )}
 
-            {panel === 'settings' && (
+            {panel === 'settings' && currentUser.role === 'owner' && (
               <form
                 className="settings-groups"
                 onSubmit={(event) => {
@@ -4835,6 +4990,7 @@ function AdminWorkspace({
                       <h2>基础信息</h2>
                       <p>决定站点名称、默认署名与内容基调。</p>
                     </div>
+                    <span className="settings-scope global">全站共享</span>
                   </div>
                   <div className="settings-grid">
                     <Field label="博客名称">
@@ -4890,6 +5046,7 @@ function AdminWorkspace({
                       <h2>首页展示</h2>
                       <p>控制访客进入网站后首先看到的内容。</p>
                     </div>
+                    <span className="settings-scope global">全站共享</span>
                   </div>
                   <Field label="首页主标题">
                     <Input
@@ -4940,6 +5097,7 @@ function AdminWorkspace({
                       <h2>链接与页脚</h2>
                       <p>补充作者主页和全站版权信息。</p>
                     </div>
+                    <span className="settings-scope global">全站共享</span>
                   </div>
                   <div className="settings-grid">
                     <Field label="GitHub 链接">
@@ -4976,11 +5134,37 @@ function AdminWorkspace({
                 </section>
                 <section className="settings-panel">
                   <div className="settings-intro">
+                    <UserRound />
+                    <div>
+                      <h2>写作偏好</h2>
+                      <p>跟随当前账号同步，不会影响其他用户和网站前台。</p>
+                    </div>
+                    <span className="settings-scope personal">账号同步</span>
+                  </div>
+                  <div className="settings-grid preference-grid">
+                    <Field label="默认预览尺寸">
+                      <select value={previewSize} onChange={(event) => setPreviewSize(event.target.value as 'desktop' | 'tablet' | 'mobile')}>
+                        <option value="desktop">桌面端</option>
+                        <option value="tablet">平板端</option>
+                        <option value="mobile">手机端</option>
+                      </select>
+                    </Field>
+                    <Field label="文章目录">
+                      <label className="preference-toggle">
+                        <input type="checkbox" checked={showOutline} onChange={(event) => setShowOutline(event.target.checked)} />
+                        <span>{showOutline ? '默认显示' : '默认隐藏'}</span>
+                      </label>
+                    </Field>
+                  </div>
+                </section>
+                <section className="settings-panel">
+                  <div className="settings-intro">
                     <ImagePlus />
                     <div>
                       <h2>网络图库</h2>
                       <p>Pexels Key 仅保存在当前浏览器，不会提交到 GitHub。</p>
                     </div>
+                    <span className="settings-scope device">当前设备</span>
                   </div>
                   <Field label="Pexels API Key">
                     <div className="local-key-field">
@@ -5899,6 +6083,13 @@ function fileToBase64(file: File) {
     reader.onerror = () => reject(new Error('无法读取图片文件。'));
     reader.readAsDataURL(file);
   });
+}
+
+async function fileHash(file: File) {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('');
 }
 
 async function prepareImage(
