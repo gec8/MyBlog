@@ -154,6 +154,10 @@ test("前台性能、真实链接和无障碍模式完整", () => {
   assert.match(readFileSync("app/design-tokens.css", "utf8"), /color-scheme: only light/);
   assert.match(css, /admin-login input:-webkit-autofill/);
   assert.match(css, /admin-login form>button:disabled/);
+  assert.match(css, /Complete dark theme/);
+  assert.match(css, /\.pexels-picker>footer/);
+  assert.match(css, /\.markdown-editor \.content-editor/);
+  assert.match(css, /\.audio-player\{/);
   assert.match(css, /prefers-reduced-motion: reduce/);
   assert.match(css, /forced-colors: active/);
   assert.match(css, /skip-link/);

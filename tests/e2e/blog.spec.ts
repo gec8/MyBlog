@@ -26,11 +26,28 @@ async function mockBackend(page: Page, role: 'owner' | 'author' = 'owner') {
 
 async function login(page: Page, role: 'owner' | 'author' = 'owner') {
   await mockBackend(page, role);
-  await page.goto('/#/admin');
+  await page.goto('/admin');
   await page.getByLabel('账号').fill(role);
   await page.getByLabel('密码').fill('abc123');
   await page.getByRole('button', { name: '登录后台' }).click();
   await expect(page.getByRole('heading', { name: /晚上好/ })).toBeVisible();
+}
+
+async function largeLightSurfaces(page: Page) {
+  return page.locator('body').evaluate((body) => {
+    const results: string[] = [];
+    for (const element of body.querySelectorAll<HTMLElement>('*')) {
+      if (element.matches('button,a,img,svg,video,canvas,picture')) continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.width * rect.height < 1500 || rect.bottom <= 0 || rect.top >= innerHeight) continue;
+      const style = getComputedStyle(element);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.1) continue;
+      const colors = `${style.backgroundColor} ${style.backgroundImage}`.matchAll(/rgba?\(\s*(\d+)[, ]+\s*(\d+)[, ]+\s*(\d+)/g);
+      const hasLightBackground = [...colors].some((match) => Number(match[1]) > 238 && Number(match[2]) > 238 && Number(match[3]) > 238);
+      if (hasLightBackground) results.push(`${element.tagName.toLowerCase()}.${element.className}`.slice(0, 140));
+    }
+    return [...new Set(results)].slice(0, 20);
+  });
 }
 
 test('首页和文章在桌面及手机均可打开且无横向溢出', async ({ page }) => {
@@ -66,6 +83,7 @@ test('手机深色模式下后台登录表单保持清晰可读', async ({ page 
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('/admin');
 
+  await expect(page.locator('.admin-login>section')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('heading', { name: '欢迎回来' })).toBeVisible();
   const cardColors = await page.locator('.admin-login>section').evaluate((element) => ({
     background: getComputedStyle(element).backgroundColor,
@@ -84,6 +102,23 @@ test('手机深色模式下后台登录表单保持清晰可读', async ({ page 
   expect(inputColors).toEqual({ background: 'rgb(23, 21, 25)', color: 'rgb(245, 241, 243)' });
   expect(buttonColors).toEqual({ background: 'rgb(245, 241, 243)', color: 'rgb(23, 23, 28)' });
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+});
+
+test('手机深色模式覆盖前台和全部后台栏目', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/');
+  await page.locator('html[data-app-ready="true"]').waitFor();
+  expect(await largeLightSurfaces(page)).toEqual([]);
+
+  await login(page, 'owner');
+  const navigation = page.locator('.admin-sidebar nav');
+  for (const label of ['概览', '文章', '写作', '媒体', '草稿', '审核', '备份', '设置', '用户']) {
+    await navigation.getByRole('button', { name: new RegExp(`^${label}`) }).click();
+    await page.waitForTimeout(80);
+    expect(await largeLightSurfaces(page), `${label}仍有浅色大面积背景`).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${label}发生横向溢出`).toBeLessThanOrEqual(1);
+  }
 });
 
 test('新用户可以登录，作者权限不会显示用户与全站设置', async ({ page }) => {
