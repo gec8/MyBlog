@@ -1,5 +1,7 @@
 :root {
-  color-scheme: light dark;
+  /* Keep controls aligned with the light palette unless the system actually
+     reports dark mode. This also opts out of Android browser auto-darkening. */
+  color-scheme: only light;
   --paper: #fffaf8;
   --ink: #17171c;
   --muted: #77747c;
@@ -26,6 +28,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
     --paper: #141316;
     --ink: #f5f1f3;
     --muted: #bbb3b9;

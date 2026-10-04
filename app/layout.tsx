@@ -15,7 +15,15 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", title: "NekoPress", description: "写下好奇，也收藏日常。", images: [ogUrl] },
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fffaf8" },
+    { media: "(prefers-color-scheme: dark)", color: "#141316" },
+  ],
+};
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const basePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? '').replace(/\/$/, '');

@@ -61,6 +61,31 @@ test('真实文章地址、键盘导航与深色模式正常', async ({ page }) 
   expect(colors.color).toBe('rgb(245, 241, 243)');
 });
 
+test('手机深色模式下后台登录表单保持清晰可读', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/admin');
+
+  await expect(page.getByRole('heading', { name: '欢迎回来' })).toBeVisible();
+  const cardColors = await page.locator('.admin-login>section').evaluate((element) => ({
+    background: getComputedStyle(element).backgroundColor,
+    color: getComputedStyle(element).color,
+  }));
+  const inputColors = await page.getByLabel('账号').evaluate((element) => ({
+    background: getComputedStyle(element).backgroundColor,
+    color: getComputedStyle(element).color,
+  }));
+  const buttonColors = await page.getByRole('button', { name: '登录后台' }).evaluate((element) => ({
+    background: getComputedStyle(element).backgroundColor,
+    color: getComputedStyle(element).color,
+  }));
+
+  expect(cardColors).toEqual({ background: 'rgb(33, 31, 35)', color: 'rgb(245, 241, 243)' });
+  expect(inputColors).toEqual({ background: 'rgb(23, 21, 25)', color: 'rgb(245, 241, 243)' });
+  expect(buttonColors).toEqual({ background: 'rgb(245, 241, 243)', color: 'rgb(23, 23, 28)' });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+});
+
 test('新用户可以登录，作者权限不会显示用户与全站设置', async ({ page }) => {
   await login(page, 'author');
   await expect(page.getByRole('button', { name: '用户' })).toHaveCount(0);
