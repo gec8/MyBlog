@@ -110,6 +110,22 @@ test('手机深色模式覆盖前台和全部后台栏目', async ({ page }) => 
   await page.goto('/');
   await page.locator('html[data-app-ready="true"]').waitFor();
   expect(await largeLightSurfaces(page)).toEqual([]);
+  const activeCategoryColors = await page.locator('.category-tabs button.active').evaluate((element) => ({
+    background: getComputedStyle(element).backgroundColor,
+    color: getComputedStyle(element).color,
+  }));
+  const logoColors = await page.locator('.cat-logo').evaluate((element) => ({
+    background: getComputedStyle(element).backgroundColor,
+    color: getComputedStyle(element).color,
+  }));
+  await page.getByRole('button', { name: '打开菜单' }).click();
+  const writeButtonColors = await page.getByRole('link', { name: '写文章' }).evaluate((element) => ({
+    background: getComputedStyle(element).backgroundColor,
+    color: getComputedStyle(element).color,
+  }));
+  expect(activeCategoryColors).toEqual({ background: 'rgb(245, 241, 243)', color: 'rgb(23, 23, 28)' });
+  expect(logoColors).toEqual({ background: 'rgb(245, 241, 243)', color: 'rgb(23, 23, 28)' });
+  expect(writeButtonColors).toEqual({ background: 'rgb(245, 241, 243)', color: 'rgb(23, 23, 28)' });
 
   await login(page, 'owner');
   const navigation = page.locator('.admin-sidebar nav');

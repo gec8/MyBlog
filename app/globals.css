@@ -254,3 +254,10 @@ nav{display:flex;align-items:center;gap:8px}nav button{display:inline-flex;align
   .editor-meta-strip{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
   .cover-field{min-width:0;flex-wrap:wrap}.cover-field>*{min-width:0}
 }
+
+/* --ink becomes light in dark mode. Every inverse control therefore needs a
+   dark foreground instead of the light-theme white foreground. */
+@media (prefers-color-scheme: dark) {
+  .site-header nav a.write-link,nav .write-link,.category-tabs button.active,.cat-logo,.article-head>div>b,.article-preview>header>div>b,.workspace-id>span,.workspace-heading button,.workspace-actions button:last-child:not(.focus-toggle),.settings-submit button,.list-empty button,.preview-size button.active,.font-controls button.active,.publish-check footer button:last-child,.publish-row button,.publish-row>div button:last-child,.review-actions button:last-child,.site-error>span,.site-error button:first-child,.audio-player .audio-play,.connect-button{background:#f5f1f3;color:#17171c!important}
+  .site-header nav a.write-link:hover,nav .write-link:hover,.category-tabs button.active:hover{background:#ff9aaa;color:#17171c!important}
+}
