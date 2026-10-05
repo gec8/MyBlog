@@ -1,13 +1,18 @@
 {
   "id": "诗歌-1788994675671",
   "slug": "poetry-sharing",
-  "legacySlugs": ["诗歌"],
-  "title": "诗歌",
-  "excerpt": "诗歌分享",
+  "title": "诗歌音频",
+  "excerpt": "诗歌音频，展示我的一个博客文章，这是第一个",
   "category": "随笔",
   "author": "Neko",
   "coverImage": "./images/诗歌-1788994669368.webp",
+  "coverPosition": "50% 50%",
+  "coverBrightness": 100,
+  "coverOverlay": 12,
   "date": "2026-09-09",
   "readMinutes": 1,
-  "content": "## 从这里开始\n\n写下你的正文。\n\n![architecture-3095716_1920.jpg](./images/article-image-1788994579040.webp)\n\n@[audio](./audio/article-audio-1788994597422.mp3)\n"
+  "content": "## 从这里开始\n\n写下你的正文。\n\n\n\n@[audio](./audio/article-audio-1788994597422.mp3)\n",
+  "legacySlugs": [
+    "诗歌"
+  ]
 }
