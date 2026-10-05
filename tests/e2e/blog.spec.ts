@@ -180,16 +180,25 @@ test('手机深色模式覆盖前台和全部后台栏目', async ({ page }) => 
     background: getComputedStyle(element).backgroundColor,
     color: getComputedStyle(element).color,
   }));
+  const discoveryLayout = await page.locator('.front-discovery').evaluate((element) => {
+    const categories = element.querySelector('.category-tabs')!.getBoundingClientRect();
+    const search = element.querySelector('label')!.getBoundingClientRect();
+    return { categoryCenter: categories.top + categories.height / 2, searchCenter: search.top + search.height / 2, categoryRight: categories.right, searchLeft: search.left };
+  });
+  expect(Math.abs(discoveryLayout.categoryCenter - discoveryLayout.searchCenter)).toBeLessThanOrEqual(2);
+  expect(discoveryLayout.searchLeft).toBeGreaterThanOrEqual(discoveryLayout.categoryRight);
   await page.getByRole('button', { name: '打开菜单' }).click();
   await expect(page.getByText('站点导航', { exact: true })).toBeVisible();
   await expect(page.getByText('外观', { exact: true })).toBeVisible();
   const mobileNavigation = await page.locator('.site-header nav').evaluate((element) => {
     const rect = element.getBoundingClientRect();
-    return { width: rect.width, left: rect.left, top: rect.top, background: getComputedStyle(element).backgroundColor, bodyOverflow: document.body.style.overflow };
+    return { width: rect.width, height: rect.height, left: rect.left, top: rect.top, bottom: rect.bottom, background: getComputedStyle(element).backgroundColor, bodyOverflow: document.body.style.overflow };
   });
   expect(mobileNavigation.width).toBeLessThanOrEqual(301);
+  expect(mobileNavigation.height).toBeGreaterThanOrEqual(779);
   expect(mobileNavigation.left).toBeGreaterThanOrEqual(89);
   expect(mobileNavigation.top).toBeGreaterThanOrEqual(63);
+  expect(mobileNavigation.bottom).toBeGreaterThanOrEqual(843);
   expect(mobileNavigation.background).toBe('rgb(28, 26, 30)');
   expect(mobileNavigation.bodyOverflow).toBe('hidden');
   const writeButtonColors = await page.getByRole('link', { name: '写文章' }).evaluate((element) => ({

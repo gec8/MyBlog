@@ -239,3 +239,14 @@ nav{display:flex;align-items:center;gap:8px}nav button{display:inline-flex;align
 @media(min-width:1101px){.editor-workspace.view-edit{grid-template-columns:minmax(520px,1fr) 190px}.editor-workspace.view-edit .preview-panel{display:none}.editor-workspace.view-preview{grid-template-columns:minmax(520px,900px);justify-content:center}.editor-workspace.view-preview .editor-panel,.editor-workspace.view-preview .editor-outline{display:none}.editor-workspace.view-preview .preview-panel{display:block;position:static}.editor-workspace.view-split{grid-template-columns:minmax(460px,1fr) 170px minmax(250px,330px)}}
 @media(max-width:1100px){.editor-view-switch{display:none}.editor-panel.desktop-hidden{display:block}.preview-panel.desktop-hidden{display:none}}
 @media(max-width:700px){.article-settings>summary small{display:none}.article-settings-body{padding-inline:12px}.seo-fields{grid-template-columns:1fr}.seo-fields .search-card-preview{grid-column:auto}.template-picker{align-items:stretch;flex-wrap:wrap}.template-picker>span{width:100%}.template-picker select{flex:1;min-width:0}.template-picker button{justify-content:center}.unsaved-check footer{display:grid;grid-template-columns:1fr 1fr}.unsaved-check footer button:last-child{grid-column:1/-1}.deployment-progress{padding:10px}.deployment-progress b{display:none}.deployment-progress>i{min-width:22px;margin-inline:6px}}
+
+/* Mobile front page: keep the drawer in the viewport and discovery controls on one row. */
+@media(max-width:760px){
+  .front-discovery{display:flex;flex-direction:row;align-items:center;gap:8px}
+  .front-discovery .category-tabs{min-width:0;width:auto;flex:1 1 auto;padding-bottom:0}
+  .front-discovery>label{width:auto;min-width:0;flex:0 0 clamp(126px,36vw,180px)}
+}
+@media(max-width:560px){
+  .site-header{-webkit-backdrop-filter:none;backdrop-filter:none}
+  .site-header nav{overflow-y:auto;overscroll-behavior:contain}
+}
