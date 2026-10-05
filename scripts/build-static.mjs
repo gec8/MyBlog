@@ -2,11 +2,13 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
+import { generateOgCards } from "./generate-og-cards.mjs";
 
 const outputDir = resolve("dist/client");
 const packageInfo = JSON.parse(readFileSync(resolve("package.json"), "utf8"));
 const posts = JSON.parse(readFileSync(resolve("data/posts.json"), "utf8"));
 const settings = JSON.parse(readFileSync(resolve("data/settings.json"), "utf8"));
+await generateOgCards();
 rmSync(resolve("dist"), { recursive: true, force: true });
 
 const cli = resolve("node_modules/vinext/dist/cli.js");

@@ -70,7 +70,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { SiteHealth } from '@/components/admin/site-health';
 import { ScopeBadge } from '@/components/admin/design-system';
-import { SiteFooter, SiteHeader } from '@/components/frontend/site-shell';
+import { SiteFooter, SiteHeader, ThemePicker } from '@/components/frontend/site-shell';
 import { BrandMark, BrandWordmark } from '@/components/brand-mark';
 import { articleHref, assetHref, homeHref } from '@/lib/site-paths';
 import { authClient } from '@/services/auth/client';
@@ -1560,8 +1560,10 @@ function AdminWorkspace({
   const [draftSort, setDraftSort] = useState<DraftSort>('updated');
   const [repoMedia, setRepoMedia] = useState<RepoMedia[]>([]);
   const [mediaFilter, setMediaFilter] = useState<
-    'all' | 'image' | 'audio' | 'unused'
+    'all' | 'image' | 'audio' | 'unused' | 'duplicate'
   >('all');
+  const [mediaSort, setMediaSort] = useState<'newest' | 'name' | 'size'>('newest');
+  const [mediaDimensions, setMediaDimensions] = useState<Record<string, { width: number; height: number }>>({});
   const [selectedMedia, setSelectedMedia] = useState<string[]>([]);
   const [managingMedia, setManagingMedia] = useState(false);
   const [replaceMediaTarget, setReplaceMediaTarget] = useState<RepoMedia | null>(null);
@@ -1755,6 +1757,12 @@ function AdminWorkspace({
   useEffect(() => {
     if (panel === 'backups') void loadSnapshots();
   }, [panel]);
+  useEffect(() => {
+    if (panel !== 'dashboard') return;
+    void loadReviews();
+    void loadRepoMedia();
+    void latestRun().then(setLastRun).catch(() => setLastRun(null));
+  }, [panel]);
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -1922,6 +1930,14 @@ function AdminWorkspace({
     });
     return Array.from(map.values());
   }, [remotePosts, savedDrafts, draft]);
+  const duplicateMediaKeys = useMemo(() => {
+    const counts = new Map<string, number>();
+    repoMedia.forEach((item) => {
+      const key = item.contentHash || item.sha;
+      if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    return new Set(Array.from(counts).filter(([, count]) => count > 1).map(([key]) => key));
+  }, [repoMedia]);
   const allMedia = useMemo(
     () =>
       repoMedia
@@ -1937,9 +1953,18 @@ function AdminWorkspace({
             mediaFilter === 'all' ||
             (mediaFilter === 'unused'
               ? !item.posts.length
+              : mediaFilter === 'duplicate'
+                ? duplicateMediaKeys.has(item.contentHash || item.sha)
               : item.type === mediaFilter),
+        )
+        .sort((a, b) =>
+          mediaSort === 'name'
+            ? a.name.localeCompare(b.name, 'zh-CN')
+            : mediaSort === 'size'
+              ? b.size - a.size
+              : (b.createdAt || '').localeCompare(a.createdAt || '') || b.name.localeCompare(a.name, 'zh-CN'),
         ),
-    [repoMedia, mediaLibrary, mediaFilter],
+    [repoMedia, mediaLibrary, mediaFilter, mediaSort, duplicateMediaKeys],
   );
   const visibleDrafts = useMemo(
     () => filterAndSortDrafts(savedDrafts, draftQuery, draftKind, draftSort),
@@ -2104,6 +2129,8 @@ function AdminWorkspace({
             sha: string;
             size: number;
             type: string;
+            createdAt?: string;
+            contentHash?: string;
           }> }>(`/api/content/files?path=${encodeURIComponent(`public/${folder}`)}`);
           const files = result.files;
           if (!Array.isArray(files)) return [];
@@ -2116,6 +2143,8 @@ function AdminWorkspace({
               size: file.size,
               type,
               url: `./${folder}/${file.name}`,
+              createdAt: file.createdAt,
+              contentHash: file.contentHash,
             }));
         }),
       );
@@ -2243,6 +2272,37 @@ function AdminWorkspace({
     } catch (error) {
       setState('error');
       setMessage(error instanceof Error ? error.message : '文件替换失败。');
+    }
+  }
+
+  async function renameRepoMedia(item: RepoMedia & { posts: string[] }) {
+    if (item.posts.length) {
+      setState('error');
+      setMessage(`该文件被 ${item.posts.length} 篇文章引用，不能直接重命名。`);
+      return;
+    }
+    const nextName = window.prompt('输入新文件名（需保留原扩展名）', item.name)?.trim();
+    if (!nextName || nextName === item.name) return;
+    setState('uploading');
+    setMessage(`正在将 ${item.name} 重命名为 ${nextName}…`);
+    try {
+      const result = await contentRequest<{ path: string; name: string; sha: string; size: number }>('/api/content/files', {
+        method: 'PATCH',
+        body: JSON.stringify({ path: item.path, name: nextName }),
+      });
+      setRepoMedia((current) => current.map((file) => file.path === item.path ? {
+        ...file,
+        path: result.path,
+        name: result.name,
+        sha: result.sha || file.sha,
+        size: result.size || file.size,
+        url: `./${result.path.split('/').slice(-2).join('/')}`,
+      } : file));
+      setState('success');
+      setMessage(`已重命名为 ${result.name}。`);
+    } catch (error) {
+      setState('error');
+      setMessage(error instanceof Error ? error.message : '文件重命名失败。');
     }
   }
 
@@ -3114,6 +3174,7 @@ function AdminWorkspace({
           <span className="cat-logo"><BrandMark /></span><BrandWordmark />
         </button>
         <div>
+          <ThemePicker compact />
           <span className={`connected-chip ${serviceStatus === 'offline' || repositoryStatus === 'offline' ? 'has-error' : ''}`}>
             {serviceStatus === 'online' && repositoryStatus === 'online' ? <CheckCircle2 /> : <LoaderCircle className={serviceStatus === 'checking' || repositoryStatus === 'checking' ? 'spin' : ''} />}
             {serviceStatus === 'checking' || repositoryStatus === 'checking'
@@ -3467,28 +3528,19 @@ function AdminWorkspace({
 
             {panel === 'dashboard' && (
               <div className="dashboard-grid">
-                <div className="dashboard-stats">
-                  <article>
-                    <span>
-                      <FileText />
-                    </span>
-                    <b>{remotePosts.length}</b>
-                    <small>已发布文章</small>
-                  </article>
-                  <article>
-                    <span>
-                      <ListFilter />
-                    </span>
-                    <b>{categories.length - 1}</b>
-                    <small>内容分类</small>
-                  </article>
-                  <article>
-                    <span>
-                      <Clock3 />
-                    </span>
-                    <b>{Math.max(1, Math.ceil(totalWords / 500))}</b>
-                    <small>累计阅读分钟</small>
-                  </article>
+                <div className="dashboard-focus">
+                  <button onClick={() => setPanel('drafts')}>
+                    <span><Save /></span><b>{savedDrafts.length}</b><small>待继续草稿</small><ArrowRight />
+                  </button>
+                  <button onClick={() => setPanel('reviews')}>
+                    <span><CheckCircle2 /></span><b>{reviews.filter((item) => item.status === 'pending').length}</b><small>待审核文章</small><ArrowRight />
+                  </button>
+                  <button onClick={() => { setMediaFilter('unused'); setPanel('media'); }}>
+                    <span><ImagePlus /></span><b>{repoMedia.filter((file) => !mediaLibrary.some((item) => item.url === normalizeMediaUrl(file.url))).length}</b><small>未使用媒体</small><ArrowRight />
+                  </button>
+                  <button className="dashboard-create" onClick={newPost}>
+                    <span><FilePlus2 /></span><b>开始创作</b><small>新建一篇文章</small><ArrowRight />
+                  </button>
                 </div>
                 <section className="recent-panel">
                   <div>
@@ -3521,6 +3573,11 @@ function AdminWorkspace({
                   token={authToken}
                   onRefresh={() => void latestRun().then(setLastRun)}
                 />
+                <div className="dashboard-summary" aria-label="网站内容统计">
+                  <span><b>{remotePosts.length}</b> 篇文章</span>
+                  <span><b>{categories.length - 1}</b> 个分类</span>
+                  <span><b>{Math.max(1, Math.ceil(totalWords / 500))}</b> 分钟内容</span>
+                </div>
               </div>
             )}
 
@@ -3727,7 +3784,7 @@ function AdminWorkspace({
                   role="group"
                   aria-label="媒体类型筛选"
                 >
-                  {(['all', 'image', 'audio', 'unused'] as const).map(
+                  {(['all', 'image', 'audio', 'unused', 'duplicate'] as const).map(
                     (filter) => (
                       <button
                         key={filter}
@@ -3743,10 +3800,20 @@ function AdminWorkspace({
                             ? '图片'
                             : filter === 'audio'
                               ? '音频'
-                              : '未引用'}
+                              : filter === 'unused'
+                                ? '未引用'
+                                : `重复文件 ${duplicateMediaKeys.size ? `(${duplicateMediaKeys.size})` : ''}`}
                       </button>
                     ),
                   )}
+                  <label className="media-sort">
+                    <ListFilter />
+                    <select value={mediaSort} onChange={(event) => setMediaSort(event.target.value as typeof mediaSort)} aria-label="媒体排序">
+                      <option value="newest">最近上传</option>
+                      <option value="name">文件名称</option>
+                      <option value="size">文件大小</option>
+                    </select>
+                  </label>
                 </div>
                 {managingMedia && (
                   <div className="media-batch">
@@ -3808,19 +3875,30 @@ function AdminWorkspace({
                         )}
                         <span className={`media-thumb ${item.type}`}>
                           {item.type === 'image' ? (
-                            <img src={item.url} alt="" loading="lazy" />
+                            <img src={item.url} alt="" loading="lazy" onLoad={(event) => {
+                              const image = event.currentTarget;
+                              setMediaDimensions((current) => current[item.path]?.width === image.naturalWidth && current[item.path]?.height === image.naturalHeight ? current : {
+                                ...current,
+                                [item.path]: { width: image.naturalWidth, height: image.naturalHeight },
+                              });
+                            }} />
                           ) : (
                             <Music2 />
                           )}
                         </span>
                         <div className="media-info">
-                          <b title={item.name}>{item.name}</b>
+                          <b title={item.name}>{item.name}{duplicateMediaKeys.has(item.contentHash || item.sha) && <em>重复</em>}</b>
                           <small>
                             {item.type === 'image' ? '图片' : '音频'} ·{' '}
                             {item.size < 1024 * 1024
                               ? `${Math.max(1, Math.round(item.size / 1024))} KB`
                               : `${(item.size / 1024 / 1024).toFixed(1)} MB`}
+                            {item.type === 'image' && mediaDimensions[item.path]
+                              ? ` · ${mediaDimensions[item.path].width}×${mediaDimensions[item.path].height}`
+                              : ''}
+                            {item.type === 'image' && /\.(?:webp|avif)$/i.test(item.name) ? ' · 已优化' : ''}
                           </small>
+                          {item.createdAt && <small>上传于 {new Date(item.createdAt).toLocaleDateString('zh-CN')}</small>}
                           <p
                             className={item.posts.length ? 'in-use' : 'unused'}
                           >
@@ -3865,6 +3943,14 @@ function AdminWorkspace({
                             >
                               <RefreshCw />
                               替换原文件
+                            </button>
+                            <button
+                              disabled={Boolean(item.posts.length)}
+                              title={item.posts.length ? '使用中的文件不能直接重命名' : '重命名文件'}
+                              onClick={() => void renameRepoMedia(item)}
+                            >
+                              <Pencil />
+                              {item.posts.length ? '使用中，不能重命名' : '重命名'}
                             </button>
                             <a href={item.url} target="_blank" rel="noreferrer">
                               <ArrowUpRight />
@@ -4704,9 +4790,12 @@ function AdminWorkspace({
                     </Field>
                   </section>
                   <div className="publish-row">
-                    <p>
-                      <Eye /> {draft.content.length} 字 · 约{' '}
-                      {preview.readMinutes} 分钟阅读
+                    <p className="publish-state">
+                      <span className={dirty ? 'is-dirty' : 'is-saved'} />
+                      <span>
+                        <b>{dirty ? '有更改，正在自动保存' : draftStatus}</b>
+                        <small>{draft.content.length} 字 · 约 {preview.readMinutes} 分钟阅读</small>
+                      </span>
                     </p>
                     <div>
                       <Button
@@ -4716,6 +4805,17 @@ function AdminWorkspace({
                       >
                         <Save />
                         保存草稿
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setMobilePreview(true);
+                          document.querySelector('.preview-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
+                      >
+                        <Eye />
+                        预览
                       </Button>
                       <Button
                         type="submit"

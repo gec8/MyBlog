@@ -89,6 +89,10 @@ export default {
         return listRepositoryFiles(url, env, cors);
       if (url.pathname === '/api/content/files' && request.method === 'POST')
         return saveRepositoryFile(request, env, auth.user, cors);
+      if (url.pathname === '/api/content/files' && request.method === 'PATCH') {
+        requireEditor(auth.user);
+        return renameRepositoryFile(request, env, auth.user, cors);
+      }
       if (url.pathname === '/api/content/files' && request.method === 'DELETE') {
         requireEditor(auth.user);
         return deleteRepositoryFile(request, env, auth.user, cors);
@@ -667,8 +671,13 @@ async function listRepositoryFiles(url: URL, env: Env, cors: Record<string, stri
   const response = await fetch(`${githubContentUrl(env, path)}?ref=${encodeURIComponent(env.GITHUB_BRANCH)}`, { headers: githubHeaders(env) });
   if (response.status === 404) return json({ files: [] }, 200, cors);
   if (!response.ok) throw new HttpError(502, '媒体目录读取失败。');
-  const files = await response.json();
-  return json({ files }, 200, cors);
+  const files = await response.json<Array<Record<string, unknown>>>();
+  const metadata = await env.DB.prepare('SELECT path, content_hash, created_at FROM media_assets WHERE path LIKE ?').bind(`${path}/%`).all<Record<string, unknown>>();
+  const byPath = new Map(metadata.results.map((item) => [String(item.path), item]));
+  return json({ files: files.map((file) => {
+    const details = byPath.get(String(file.path));
+    return { ...file, contentHash: details?.content_hash ?? null, createdAt: details?.created_at ?? null };
+  }) }, 200, cors);
 }
 async function saveRepositoryFile(request: Request, env: Env, user: UserRow, cors: Record<string, string>) {
   const data = await body(request); const path = safeRepositoryPath(String(data.path ?? ''));
@@ -695,6 +704,31 @@ async function deleteRepositoryFile(request: Request, env: Env, user: UserRow, c
   await env.DB.prepare('DELETE FROM media_assets WHERE path = ?').bind(path).run();
   await audit(env, user.id, 'media.deleted', 'media', path, request);
   return json({ ok: true }, 200, cors);
+}
+async function renameRepositoryFile(request: Request, env: Env, user: UserRow, cors: Record<string, string>) {
+  const data = await body(request);
+  const oldPath = safeRepositoryPath(typeof data.path === 'string' ? data.path : '');
+  const nextName = typeof data.name === 'string' ? data.name.trim() : '';
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(nextName)) throw new HttpError(400, '文件名只能使用字母、数字、点、横线和下划线。');
+  const folder = oldPath.slice(0, oldPath.lastIndexOf('/'));
+  const nextPath = safeRepositoryPath(`${folder}/${nextName}`);
+  if (nextPath === oldPath) return json({ ok: true, path: oldPath, name: nextName }, 200, cors);
+  if (oldPath.split('.').pop()?.toLowerCase() !== nextName.split('.').pop()?.toLowerCase())
+    throw new HttpError(400, '重命名时不能改变文件格式。');
+  const articles = await readGithubJson<Record<string, unknown>[]>(env, 'data/posts.json');
+  const oldName = oldPath.split('/').pop() ?? oldPath;
+  if (JSON.stringify(articles.data).includes(oldName)) throw new HttpError(409, '该文件正在被文章使用，请先更新文章中的链接。');
+  const sourceResponse = await fetch(`${githubContentUrl(env, oldPath)}?ref=${encodeURIComponent(env.GITHUB_BRANCH)}`, { headers: githubHeaders(env) });
+  if (!sourceResponse.ok) throw new HttpError(404, '原文件不存在，请刷新媒体库。');
+  const source = await sourceResponse.json<{ content: string; sha: string }>();
+  const createResponse = await fetch(githubContentUrl(env, nextPath), { method: 'PUT', headers: githubHeaders(env), body: JSON.stringify({ message: `rename media: ${oldName} to ${nextName}`, content: source.content.replace(/\s/g, ''), branch: env.GITHUB_BRANCH }) });
+  if (!createResponse.ok) throw await githubHttpError(createResponse, '媒体重命名失败');
+  const created = await createResponse.json<{ content?: { sha?: string; size?: number } }>();
+  const removeResponse = await fetch(githubContentUrl(env, oldPath), { method: 'DELETE', headers: githubHeaders(env), body: JSON.stringify({ message: `remove renamed media: ${oldName}`, sha: source.sha, branch: env.GITHUB_BRANCH }) });
+  if (!removeResponse.ok) throw await githubHttpError(removeResponse, '新文件已创建，但旧文件清理失败');
+  await env.DB.prepare('UPDATE media_assets SET path = ?, name = ? WHERE path = ?').bind(nextPath, nextName, oldPath).run();
+  await audit(env, user.id, 'media.renamed', 'media', `${oldPath} -> ${nextPath}`, request);
+  return json({ ok: true, path: nextPath, name: nextName, sha: created.content?.sha ?? '', size: created.content?.size ?? 0 }, 200, cors);
 }
 async function listDrafts(env: Env, user: UserRow, cors: Record<string, string>) {
   const result = await env.DB.prepare('SELECT id, draft_json, updated_at FROM cloud_drafts WHERE user_id = ? ORDER BY updated_at DESC LIMIT 30').bind(user.id).all();

@@ -56,6 +56,8 @@ export type RepoMedia = {
   url: string;
   size: number;
   type: 'image' | 'audio';
+  createdAt?: string;
+  contentHash?: string;
 };
 
 export type AdminUser = {

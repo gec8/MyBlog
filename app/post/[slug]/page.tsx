@@ -26,8 +26,8 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const post = findPost(decodeURIComponent(slug));
   if (!post) return { title: '文章不存在' };
   const canonical = `${siteUrl}/post/${encodeURIComponent(post.slug)}`;
-  const image = absoluteAsset(post.coverImage);
-  return { title: `${post.title} · ${settings.name}`, description: post.excerpt, alternates: { canonical }, openGraph: { type: 'article', url: canonical, title: post.title, description: post.excerpt, publishedTime: post.date, authors: [post.author], tags: [post.category], images: image ? [{ url: image, alt: post.title }] : [] }, twitter: { card: image ? 'summary_large_image' : 'summary', title: post.title, description: post.excerpt, images: image ? [image] : [] } };
+  const image = `${siteUrl}/og/${encodeURIComponent(post.slug)}.jpg`;
+  return { title: `${post.title} · ${settings.name}`, description: post.excerpt, alternates: { canonical }, openGraph: { type: 'article', url: canonical, title: post.title, description: post.excerpt, publishedTime: post.date, authors: [post.author], tags: [post.category], images: [{ url: image, width: 1200, height: 630, alt: `${post.title} 分享卡片` }] }, twitter: { card: 'summary_large_image', title: post.title, description: post.excerpt, images: [image] } };
 }
 
 export default async function PostPage({ params }: { params: Promise<{ slug: string }> }) {

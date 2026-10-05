@@ -98,6 +98,32 @@ test('首页和文章在桌面及手机均可打开且无横向溢出', async ({
   await expect(page.locator('.article-body')).toBeVisible();
 });
 
+test('手机首页首屏紧凑且手动主题会跨刷新保持', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/');
+  await page.locator('html[data-app-ready="true"]').waitFor();
+  const heroHeight = await page.locator('.hero').evaluate((element) => element.getBoundingClientRect().height);
+  expect(heroHeight).toBeGreaterThanOrEqual(330);
+  expect(heroHeight).toBeLessThanOrEqual(342);
+
+  await page.getByRole('button', { name: '打开菜单' }).click();
+  await page.getByRole('button', { name: '主题：浅色' }).click();
+  await page.reload();
+  await page.locator('html[data-app-ready="true"]').waitFor();
+  expect(await page.evaluate(() => localStorage.getItem('nekonote-theme'))).toBe('light');
+  expect(await page.locator('#nekonote-dark-theme').getAttribute('media')).toBe('not all');
+  expect(await page.locator('body').evaluate((element) => getComputedStyle(element).backgroundColor)).toBe('rgb(255, 250, 248)');
+
+  await page.getByRole('button', { name: '打开菜单' }).click();
+  await page.getByRole('button', { name: '主题：深色' }).click();
+  await page.reload();
+  await page.locator('html[data-app-ready="true"]').waitFor();
+  expect(await page.evaluate(() => localStorage.getItem('nekonote-theme'))).toBe('dark');
+  expect(await page.locator('#nekonote-dark-theme').getAttribute('media')).toBe('all');
+  expect(await page.locator('body').evaluate((element) => getComputedStyle(element).backgroundColor)).toBe('rgb(20, 19, 22)');
+});
+
 test('真实文章地址、键盘导航与深色模式正常', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
   await page.goto('/post/welcome-to-nekopress');

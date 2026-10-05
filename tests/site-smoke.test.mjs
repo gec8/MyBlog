@@ -4,6 +4,10 @@ import test from "node:test";
 
 const source = readFileSync("components/blog-app.tsx", "utf8");
 const css = readFileSync("app/globals.css", "utf8");
+const darkCss = readFileSync("public/theme-dark.css", "utf8");
+const layoutSource = readFileSync("app/layout.tsx", "utf8");
+const shellSource = readFileSync("components/frontend/site-shell.tsx", "utf8");
+const shareCardSource = readFileSync("scripts/generate-og-cards.mjs", "utf8");
 const pexelsCss = readFileSync("app/pexels-picker.css", "utf8");
 const draftUtils = readFileSync("components/admin/draft-utils.ts", "utf8");
 const authWorker = readFileSync("auth-worker/src/index.ts", "utf8");
@@ -69,6 +73,10 @@ test("后台编辑和发布入口存在", () => {
   assert.match(css, /pexels-picker\.css/);
   assert.match(source, /deleteRepoMedia/);
   assert.match(source, /deleteSelectedMedia/);
+  assert.match(source, /renameRepoMedia/);
+  assert.match(source, /duplicateMediaKeys/);
+  assert.match(source, /mediaSort/);
+  assert.match(source, /mediaDimensions/);
   assert.match(source, /selectedMedia/);
   assert.match(source, /normalizeMediaUrl/);
   assert.match(source, /草稿：/);
@@ -99,6 +107,10 @@ test("后台编辑和发布入口存在", () => {
   assert.match(designSystem, /账号同步/);
   assert.match(designSystem, /当前设备/);
   assert.match(monitoring, /installGlobalErrorMonitoring/);
+  assert.match(source, /publish-state/);
+  assert.match(source, /dashboard-focus/);
+  assert.match(authWorker, /renameRepositoryFile/);
+  assert.match(authWorker, /method === 'PATCH'/);
 });
 
 test("音频语法与播放器状态完整", () => {
@@ -133,6 +145,8 @@ test("构建产物包含首页与健康信息", () => {
   assert.ok(existsSync("dist/client/post/科技.html"));
   assert.ok(existsSync("dist/client/post/%E8%AF%97%E6%AD%8C.html"));
   assert.ok(existsSync("dist/client/post/诗歌.html"));
+  assert.ok(existsSync("dist/client/theme-dark.css"));
+  assert.ok(existsSync("dist/client/og/welcome-to-nekopress.jpg"));
   const homeHtml = readFileSync("dist/client/index.html", "utf8");
   const articleHtml = readFileSync("dist/client/post/welcome-to-nekopress.html", "utf8");
   assert.doesNotMatch(homeHtml, /blog-app-[^\"]+\.js/);
@@ -141,6 +155,8 @@ test("构建产物包含首页与健康信息", () => {
   assert.ok(existsSync("dist/client/admin.html"));
   assert.match(articleHtml, /BlogPosting/);
   assert.match(articleHtml, /rel="canonical"/);
+  assert.match(articleHtml, /og\/welcome-to-nekopress\.jpg/);
+  assert.match(articleHtml, /summary_large_image/);
 });
 
 test("前台性能、真实链接和无障碍模式完整", () => {
@@ -150,12 +166,17 @@ test("前台性能、真实链接和无障碍模式完整", () => {
   assert.match(frontSource, /coverThumbnail \|\| post\.coverImage/);
   assert.match(frontSource, /loading="lazy"/);
   assert.match(frontSource, /aria-live="polite"/);
-  assert.match(css, /prefers-color-scheme: dark/);
+  assert.match(layoutSource, /nekonote-dark-theme/);
+  assert.match(layoutSource, /nekonote-theme/);
+  assert.match(shellSource, /主题：跟随系统/);
+  assert.match(shellSource, /主题：浅色/);
+  assert.match(shellSource, /主题：深色/);
+  assert.match(darkCss, /color-scheme: dark/);
   assert.match(readFileSync("app/design-tokens.css", "utf8"), /color-scheme: only light/);
   assert.match(css, /admin-login input:-webkit-autofill/);
   assert.match(css, /admin-login form>button:disabled/);
-  assert.match(css, /Complete dark theme/);
-  assert.match(css, /\.pexels-picker>footer/);
+  assert.match(darkCss, /theme controller/);
+  assert.match(pexelsCss, /\.pexels-picker>footer/);
   assert.match(css, /\.markdown-editor \.content-editor/);
   assert.match(css, /\.audio-player\{/);
   assert.match(css, /Every inverse control/);
@@ -167,6 +188,10 @@ test("前台性能、真实链接和无障碍模式完整", () => {
   assert.match(css, /prefers-reduced-motion: reduce/);
   assert.match(css, /forced-colors: active/);
   assert.match(css, /skip-link/);
+  assert.match(css, /min-height:336px/);
+  assert.match(shareCardSource, /1200, 630/);
+  assert.match(shareCardSource, /post\.category/);
+  assert.match(shareCardSource, /post\.date/);
 });
 
 test("后台账号、权限与安全会话完整", () => {
