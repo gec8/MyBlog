@@ -34,6 +34,7 @@ function PostCard({ post, featured = false }: { post: Post; featured?: boolean }
       <div className="post-content">
         <p>{featured ? "EDITOR'S PICK" : `${post.category} · ${post.author}`}</p>
         <h3>{post.title}</h3><span>{post.excerpt}</span>
+        {Boolean(post.tags?.length) && <div className="post-tags">{post.tags!.slice(0, 3).map((tag) => <small key={tag}>#{tag}</small>)}</div>}
         <footer><span><Clock3 size={14} /> {post.readMinutes} 分钟阅读</span><ArrowUpRight className="card-arrow" size={16} /></footer>
       </div>
     </a>
@@ -47,7 +48,7 @@ export function BlogFront({ posts, settings }: { posts: Post[]; settings: SiteSe
   const [category, setCategory] = useState('全部');
   const [visibleCount, setVisibleCount] = useState(settings.postsPerPage || 9);
   const categories = useMemo(() => ['全部', ...Array.from(new Set(posts.map((post) => post.category)))], [posts]);
-  const filtered = useMemo(() => posts.filter((post) => (category === '全部' || post.category === category) && `${post.title} ${post.excerpt} ${post.author}`.toLowerCase().includes(query.toLowerCase())), [posts, category, query]);
+  const filtered = useMemo(() => posts.filter((post) => (category === '全部' || post.category === category) && `${post.title} ${post.excerpt} ${post.author} ${(post.tags ?? []).join(' ')}`.toLowerCase().includes(query.toLowerCase())), [posts, category, query]);
   useEffect(() => installGlobalErrorMonitoring(), []);
   useEffect(() => {
     document.documentElement.dataset.appReady = 'true';

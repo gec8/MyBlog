@@ -217,7 +217,7 @@ function Home({ posts, settings }: { posts: Post[]; settings: SiteSettings }) {
       posts.filter(
         (post) =>
           (frontCategory === '全部' || post.category === frontCategory) &&
-          `${post.title} ${post.excerpt} ${post.author}`
+          `${post.title} ${post.excerpt} ${post.author} ${(post.tags ?? []).join(' ')}`
             .toLowerCase()
             .includes(frontQuery.toLowerCase()),
       ),
@@ -1149,11 +1149,29 @@ const coverCategories = [
   { label: '动物萌宠', value: '动物' },
   { label: '抽象背景', value: '抽象 背景' },
 ] as const;
+type ArticleTemplate = {
+  id: string;
+  name: string;
+  category: string;
+  excerpt: string;
+  content: string;
+  tags: string[];
+};
+const articleTemplates: ArticleTemplate[] = [
+  { id: 'blank', name: '空白文章', category: '随笔', excerpt: '', tags: [], content: '## 从这里开始\n\n写下你的正文。' },
+  { id: 'dev-note', name: '开发笔记', category: '开发', excerpt: '记录问题、分析过程与最终解决方案。', tags: ['开发', '笔记'], content: '## 问题背景\n\n\n## 原因分析\n\n\n## 解决方案\n\n```\n\n```\n\n## 总结\n\n' },
+  { id: 'tutorial', name: '教程', category: '开发', excerpt: '通过清晰步骤完成一项具体任务。', tags: ['教程'], content: '## 准备工作\n\n\n## 操作步骤\n\n1. 第一步\n2. 第二步\n\n## 常见问题\n\n\n## 完成\n\n' },
+  { id: 'life', name: '生活随笔', category: '生活', excerpt: '记录一段日常、观察或当下的想法。', tags: ['生活'], content: '## 今天想记下的事\n\n\n## 我的感受\n\n\n## 留给以后\n\n' },
+  { id: 'poem', name: '诗歌', category: '随笔', excerpt: '一首关于当下心情的小诗。', tags: ['诗歌'], content: '在这里写下诗句。\n\n---\n\n### 创作手记\n\n' },
+];
 const emptyDraft: Draft = {
   title: '',
   slug: '',
   excerpt: '',
   category: '随笔',
+  tags: [],
+  seoTitle: '',
+  seoDescription: '',
   author: 'Neko',
   coverImage: '',
   coverCredit: '',
@@ -1163,6 +1181,29 @@ const emptyDraft: Draft = {
   coverOverlay: 12,
   content: '## 从这里开始\n\n写下你的正文。',
 };
+
+type RecoveryDraft = SavedDraft & { source: 'local' | 'cloud' };
+
+function isMeaningfulDraft(draft: Draft) {
+  return Boolean(
+    draft.title.trim() ||
+    draft.excerpt.trim() ||
+    draft.coverImage.trim() ||
+    draft.content.trim() !== emptyDraft.content.trim()
+  );
+}
+
+function draftDiffSummary(current: Draft, previous: Draft) {
+  const fields = [
+    current.title !== previous.title ? '标题' : '',
+    current.excerpt !== previous.excerpt ? '摘要' : '',
+    current.category !== previous.category ? '分类' : '',
+    current.coverImage !== previous.coverImage ? '封面' : '',
+    current.content !== previous.content ? '正文' : '',
+  ].filter(Boolean);
+  const delta = current.content.replace(/\s/g, '').length - previous.content.replace(/\s/g, '').length;
+  return `${fields.length ? fields.join('、') : '无内容变化'}${delta ? ` · 正文${delta > 0 ? '+' : ''}${delta}字` : ''}`;
+}
 
 function Admin(props: {
   posts: Post[];
@@ -1507,10 +1548,14 @@ function AdminWorkspace({
   const [snapshots, setSnapshots] = useState<ContentSnapshot[]>([]);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [mobilePreview, setMobilePreview] = useState(false);
+  const [editorView, setEditorView] = useState<'edit' | 'split' | 'preview'>('split');
   const [previewSize, setPreviewSize] = useState<
     'desktop' | 'tablet' | 'mobile'
   >('desktop');
   const [savedDrafts, setSavedDrafts] = useState<SavedDraft[]>([]);
+  const [customTemplates, setCustomTemplates] = useState<ArticleTemplate[]>([]);
+  const [recoveryDrafts, setRecoveryDrafts] = useState<RecoveryDraft[]>([]);
+  const [showDraftRecovery, setShowDraftRecovery] = useState(false);
   const [activeDraftId, setActiveDraftId] = useState(
     () => `draft-${Date.now()}`,
   );
@@ -1535,7 +1580,7 @@ function AdminWorkspace({
   const [draftStatus, setDraftStatus] = useState('草稿会自动保存在本机');
   const [dirty, setDirty] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-  const [deploymentStage, setDeploymentStage] = useState<0 | 1 | 2 | 3 | 4>(0);
+  const [deploymentStage, setDeploymentStage] = useState<0 | 1 | 2 | 3 | 4 | 5 | 6>(0);
   const [publishRetryAvailable, setPublishRetryAvailable] = useState(false);
   const [lastRun, setLastRun] = useState<{
     id: number;
@@ -1587,6 +1632,8 @@ function AdminWorkspace({
   const mediaReplaceRef = useRef<HTMLInputElement>(null);
   const undoStack = useRef<string[]>([]);
   const redoStack = useRef<string[]>([]);
+  const pendingEditorTransition = useRef<null | (() => void)>(null);
+  const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false);
 
   useEffect(() => {
     try {
@@ -1622,21 +1669,28 @@ function AdminWorkspace({
           }
         });
       }
-      const savedDraft = localStorage.getItem('nekopress-draft');
-      if (savedDraft) {
-        const restoredDraft = {
-          ...emptyDraft,
-          ...(JSON.parse(savedDraft) as Partial<Draft>),
-        };
-        deferUpdate(() => {
-          setDraft(restoredDraft);
-          setSlugManuallyEdited(Boolean(restoredDraft.slug));
-        });
-      }
       const allDrafts = localStorage.getItem('nekopress-drafts');
       if (allDrafts) deferUpdate(() => setSavedDrafts(JSON.parse(allDrafts)));
+      const activeDraft = localStorage.getItem('nekopress-active-draft');
+      const legacyDraft = localStorage.getItem('nekopress-draft');
+      if (activeDraft || legacyDraft) {
+        const parsed = activeDraft
+          ? (JSON.parse(activeDraft) as SavedDraft)
+          : {
+              id: `recovered-${Date.now()}`,
+              savedAt: new Date().toISOString(),
+              draft: JSON.parse(legacyDraft || '{}') as Draft,
+            };
+        const recovered = { ...parsed, draft: { ...emptyDraft, ...parsed.draft }, source: 'local' as const };
+        if (isMeaningfulDraft(recovered.draft)) deferUpdate(() => {
+          setRecoveryDrafts([recovered]);
+          setShowDraftRecovery(true);
+        });
+      }
       const allVersions = localStorage.getItem('nekopress-versions');
       if (allVersions) deferUpdate(() => setVersions(JSON.parse(allVersions)));
+      const savedTemplates = localStorage.getItem('nekopress-article-templates');
+      if (savedTemplates) deferUpdate(() => setCustomTemplates(JSON.parse(savedTemplates)));
       const savedPexelsKey = localStorage.getItem('nekopress-pexels-key');
       if (savedPexelsKey) deferUpdate(() => setPexelsKey(savedPexelsKey));
     } catch {
@@ -1668,6 +1722,18 @@ function AdminWorkspace({
   async function loadCloudDrafts() {
     try {
       const result = await contentRequest<{ drafts: SavedDraft[] }>('/api/drafts');
+      const activeRaw = localStorage.getItem('nekopress-active-draft');
+      const activeLocal = activeRaw ? (JSON.parse(activeRaw) as SavedDraft) : null;
+      const activeCloud = activeLocal
+        ? result.drafts.find((item) => item.id === activeLocal.id)
+        : null;
+      if (activeCloud && JSON.stringify(activeCloud.draft) !== JSON.stringify(activeLocal?.draft)) {
+        setRecoveryDrafts([
+          { ...activeLocal!, source: 'local' },
+          { ...activeCloud, source: 'cloud' },
+        ]);
+        setShowDraftRecovery(true);
+      }
       setSavedDrafts((local) => {
         const merged = [...result.drafts, ...local.filter((item) => !result.drafts.some((cloud) => cloud.id === item.id))].slice(0, 30);
         localStorage.setItem('nekopress-drafts', JSON.stringify(merged));
@@ -1704,13 +1770,9 @@ function AdminWorkspace({
   useEffect(() => {
     const timer = window.setTimeout(() => {
       localStorage.setItem('nekopress-draft', JSON.stringify(draft));
-      const meaningfulDraft = Boolean(
-        draft.title.trim() ||
-        draft.excerpt.trim() ||
-        draft.coverImage.trim() ||
-        draft.content.trim() !== emptyDraft.content.trim(),
-      );
+      const meaningfulDraft = isMeaningfulDraft(draft);
       if (!meaningfulDraft) {
+        localStorage.removeItem('nekopress-active-draft');
         setDraftStatus('空白草稿不会加入草稿箱');
         return;
       }
@@ -1719,6 +1781,7 @@ function AdminWorkspace({
         savedAt: new Date().toISOString(),
         draft,
       };
+      localStorage.setItem('nekopress-active-draft', JSON.stringify(entry));
       setSavedDrafts((current) => {
         const next = [
           entry,
@@ -1784,9 +1847,11 @@ function AdminWorkspace({
       }
       if (command && event.key.toLowerCase() === 'f' && panel === 'editor') {
         event.preventDefault();
-        setShowFind(true);
+        if (event.shiftKey) setFocusMode((current) => !current);
+        else setShowFind(true);
       }
       if (event.key === 'Escape') {
+        setShowUnsavedPrompt(false);
         setShowPublishCheck(false);
         setShowPexels(false);
         setDeleteTarget(null);
@@ -1808,6 +1873,9 @@ function AdminWorkspace({
       title: draft.title || '文章标题',
       excerpt: draft.excerpt || '一句清楚的摘要会帮助读者决定是否继续阅读。',
       category: draft.category,
+      tags: draft.tags,
+      seoTitle: draft.seoTitle.trim() || undefined,
+      seoDescription: draft.seoDescription.trim() || undefined,
       author: draft.author || 'Neko',
       coverImage: draft.coverImage.trim() || undefined,
       coverCredit: draft.coverCredit.trim() || undefined,
@@ -1848,7 +1916,7 @@ function AdminWorkspace({
         .filter(
           (post) =>
             (categoryFilter === '全部' || post.category === categoryFilter) &&
-            `${post.title} ${post.excerpt}`
+            `${post.title} ${post.excerpt} ${(post.tags ?? []).join(' ')}`
               .toLowerCase()
               .includes(query.toLowerCase()),
         )
@@ -1991,10 +2059,6 @@ function AdminWorkspace({
       warnings.push('封面仍是外部链接，建议上传到媒体库');
     if (draft.coverPexelsId && (!draft.coverCredit || !draft.coverCreditUrl))
       warnings.push('Pexels 封面缺少来源署名');
-    if (draft.title.trim().length > 0 && draft.title.trim().length < 4)
-      warnings.push('标题过短，建议写清文章主题');
-    if (draft.excerpt.trim().length > 0 && draft.excerpt.trim().length < 20)
-      warnings.push('摘要不足 20 字，读者难以判断文章内容');
     if (draft.content.replace(/\s/g, '').length > 0 && draft.content.replace(/\s/g, '').length < 50)
       warnings.push('正文不足 50 字，建议继续补充');
     return warnings;
@@ -2007,17 +2071,30 @@ function AdminWorkspace({
     draft.title,
     draft.excerpt,
   ]);
+  const markdownBlockers = useMemo(() => {
+    const issues: string[] = [];
+    if ((draft.content.match(/^```/gm)?.length ?? 0) % 2 !== 0)
+      issues.push('代码块没有正确闭合');
+    if (/\[[^\]]+\]\(\s*\)/.test(draft.content))
+      issues.push('正文存在空链接');
+    if (/!\[\s*\]\(/.test(draft.content))
+      issues.push('图片需要填写替代文字');
+    if (draft.coverPexelsId && (!draft.coverCredit.trim() || !draft.coverCreditUrl.trim()))
+      issues.push('Pexels 封面缺少来源署名');
+    return issues;
+  }, [draft.content, draft.coverPexelsId, draft.coverCredit, draft.coverCreditUrl]);
   const publishBlockers = useMemo(() => {
     const issues: string[] = [];
-    if (draft.title.trim().length < 4) issues.push('标题至少需要 4 个字');
-    if (draft.excerpt.trim().length < 20) issues.push('摘要至少需要 20 个字');
+    if (!draft.title.trim()) issues.push('请填写文章标题');
+    if (!draft.excerpt.trim()) issues.push('请填写文章摘要');
     if (draft.content.replace(/\s/g, '').length < 50) issues.push('正文至少需要 50 个字');
     if (!draft.category.trim()) issues.push('请选择或填写文章分类');
     if (!draft.author.trim()) issues.push('请填写文章作者');
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(draft.slug)) issues.push('文章链接必须是小写英文、数字或连字符');
     if (slugDuplicate) issues.push('文章链接已被其他文章使用');
+    issues.push(...markdownBlockers);
     return issues;
-  }, [draft.title, draft.excerpt, draft.content, draft.category, draft.author, draft.slug, slugDuplicate]);
+  }, [draft.title, draft.excerpt, draft.content, draft.category, draft.author, draft.slug, slugDuplicate, markdownBlockers]);
   const suggestedCoverQuery = useMemo(
     () => coverKeywords(draft.title, draft.category),
     [draft.title, draft.category],
@@ -2401,20 +2478,20 @@ function AdminWorkspace({
 
   async function waitForDeployment(previousId: number | null) {
     setState('deploying');
-    setDeploymentStage(2);
+    setDeploymentStage(4);
     setMessage('内容已提交，正在等待 GitHub Pages 开始更新…');
     for (let attempt = 0; attempt < 24; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 5000));
       const run = await latestRun();
       if (!run || (previousId && run.id === previousId)) continue;
       if (run.status !== 'completed') {
-        setDeploymentStage(3);
+        setDeploymentStage(5);
         setMessage('GitHub Pages 正在构建和部署，请稍候…');
         continue;
       }
       if (run.conclusion === 'success') {
         setLastRun(run);
-        setDeploymentStage(4);
+        setDeploymentStage(6);
         setState('success');
         setPublishRetryAvailable(false);
         setMessage('网站更新完成，最新内容已经上线。');
@@ -2527,6 +2604,7 @@ function AdminWorkspace({
       savedAt: new Date().toISOString(),
       draft,
     };
+    localStorage.setItem('nekopress-active-draft', JSON.stringify(entry));
     setSavedDrafts((current) => {
       const next = [
         entry,
@@ -2544,6 +2622,7 @@ function AdminWorkspace({
       id: `version-${Date.now()}`,
       savedAt: new Date().toISOString(),
       draft,
+      parentId: activeDraftId,
     };
     setVersions((current) => {
       const next = [snapshot, ...current].slice(0, 10);
@@ -2562,7 +2641,7 @@ function AdminWorkspace({
     void contentRequest(`/api/drafts/${encodeURIComponent(item.id)}`, { method: 'DELETE' }).catch(() => setMessage('本机草稿已删除，但云端删除失败，请稍后重试。'));
     setDeletedDraft({ item, index: Math.max(0, index) });
     setDraftDeleteTarget(null);
-    if (activeDraftId === item.id) newPost();
+    if (activeDraftId === item.id) resetNewPost();
     window.setTimeout(
       () =>
         setDeletedDraft((current) =>
@@ -2612,7 +2691,7 @@ function AdminWorkspace({
     setSavedDrafts(next);
     localStorage.setItem('nekopress-drafts', JSON.stringify(next));
     for (const item of removed) void contentRequest(`/api/drafts/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
-    if (selectedDraftIds.includes(activeDraftId)) newPost();
+    if (selectedDraftIds.includes(activeDraftId)) resetNewPost();
     setDeletedDraft(
       removed.length === 1
         ? {
@@ -2651,7 +2730,26 @@ function AdminWorkspace({
     setDirty(true);
   }
 
-  function newPost() {
+  function requestEditorTransition(action: () => void) {
+    if (panel === 'editor' && dirty) {
+      pendingEditorTransition.current = action;
+      setShowUnsavedPrompt(true);
+      return;
+    }
+    action();
+  }
+
+  function completeEditorTransition(saveFirst: boolean) {
+    if (saveFirst) saveDraft();
+    const action = pendingEditorTransition.current;
+    pendingEditorTransition.current = null;
+    setShowUnsavedPrompt(false);
+    action?.();
+  }
+
+  function resetNewPost() {
+    localStorage.removeItem('nekopress-draft');
+    localStorage.removeItem('nekopress-active-draft');
     setDraft({
       ...emptyDraft,
       author: siteSettings.author || 'Neko',
@@ -2665,12 +2763,54 @@ function AdminWorkspace({
     setPanel('editor');
   }
 
-  function editPost(post: Post) {
+  function newPost() {
+    requestEditorTransition(resetNewPost);
+  }
+
+  function applyArticleTemplate(template: ArticleTemplate) {
+    requestEditorTransition(() => {
+      setDraft({
+        ...emptyDraft,
+        category: template.category,
+        tags: template.tags,
+        author: siteSettings.author || 'Neko',
+        excerpt: template.excerpt,
+        content: template.content,
+      });
+      setActiveDraftId(`draft-${Date.now()}`);
+      setEditingId(null);
+      setSlugManuallyEdited(false);
+      setDirty(true);
+      setMessage(`已应用「${template.name}」模板。`);
+      setPanel('editor');
+    });
+  }
+
+  function saveAsTemplate() {
+    const template: ArticleTemplate = {
+      id: `custom-${Date.now()}`,
+      name: draft.title.trim() || `自定义模板 ${customTemplates.length + 1}`,
+      category: draft.category,
+      excerpt: draft.excerpt,
+      tags: draft.tags,
+      content: draft.content,
+    };
+    const next = [template, ...customTemplates].slice(0, 10);
+    setCustomTemplates(next);
+    localStorage.setItem('nekopress-article-templates', JSON.stringify(next));
+    setState('success');
+    setMessage(`已保存自定义模板「${template.name}」。`);
+  }
+
+  function applyPostForEditing(post: Post) {
     setDraft({
       title: post.title,
       slug: post.slug,
       excerpt: post.excerpt,
       category: post.category,
+      tags: post.tags ?? [],
+      seoTitle: post.seoTitle ?? '',
+      seoDescription: post.seoDescription ?? '',
       author: post.author,
       coverImage: post.coverImage ?? '',
       coverCredit: post.coverCredit ?? '',
@@ -2689,7 +2829,12 @@ function AdminWorkspace({
     setPanel('editor');
   }
 
-  function openSavedDraft(item: SavedDraft) {
+  function editPost(post: Post) {
+    if (editingId === post.id && panel === 'editor') return;
+    requestEditorTransition(() => applyPostForEditing(post));
+  }
+
+  function applySavedDraft(item: SavedDraft) {
     setDraft({ ...emptyDraft, ...item.draft });
     setActiveDraftId(item.id);
     setEditingId(item.id.startsWith('post-') ? item.id.slice(5) : null);
@@ -2697,6 +2842,12 @@ function AdminWorkspace({
     setDirty(false);
     setMessage('');
     setPanel('editor');
+    localStorage.setItem('nekopress-active-draft', JSON.stringify(item));
+  }
+
+  function openSavedDraft(item: SavedDraft) {
+    if (activeDraftId === item.id && panel === 'editor') return;
+    requestEditorTransition(() => applySavedDraft(item));
   }
 
   async function refreshPosts() {
@@ -2761,6 +2912,23 @@ function AdminWorkspace({
     requestAnimationFrame(() => {
       area.focus();
       area.setSelectionRange(caret, caret);
+    });
+  }
+
+  function insertMediaAtSelection(markdown: string) {
+    const start = Math.min(selectionRef.current.start, draft.content.length);
+    const end = Math.min(selectionRef.current.end, draft.content.length);
+    const before = draft.content.slice(0, start);
+    const after = draft.content.slice(end);
+    const lead = before && !before.endsWith('\n\n') ? (before.endsWith('\n') ? '\n' : '\n\n') : '';
+    const trail = after && !after.startsWith('\n') ? '\n\n' : '\n';
+    const insertion = `${lead}${markdown.trim()}${trail}`;
+    updateDraft({ content: `${before}${insertion}${after}` });
+    const caret = start + insertion.length;
+    selectionRef.current = { start: caret, end: caret };
+    requestAnimationFrame(() => {
+      editorRef.current?.focus();
+      editorRef.current?.setSelectionRange(caret, caret);
     });
   }
 
@@ -2978,11 +3146,10 @@ function AdminWorkspace({
       const name = mediaFileName(file.name, prepared.extension);
       const result = await contentRequest<{ content?: { name?: string } }>('/api/content/files', { method: 'POST', body: JSON.stringify({ path: `public/images/${name}`, message: `upload: ${name}`, content: prepared.content, contentHash: await fileHash(file) }) });
       const savedName = result.content?.name || name;
-      updateDraft({
-        content: `${draft.content.trimEnd()}\n\n![${file.name}](./images/${savedName})\n`,
-      });
+      const alt = file.name.replace(/\.[^.]+$/, '').replace(/[\[\]]/g, '').trim() || '文章图片';
+      insertMediaAtSelection(`![${alt}](./images/${savedName})`);
       setState('success');
-      setMessage('图片已插入正文末尾。');
+      setMessage('图片已插入当前光标位置。');
     } catch (error) {
       setState('error');
       setMessage(error instanceof Error ? error.message : '图片上传失败。');
@@ -3017,11 +3184,12 @@ function AdminWorkspace({
           .replace(/\.[^.]+$/, '')
           .replace(/\]/g, '')
           .trim() || '文章音频';
+      const imageAlt = file.name.replace(/\.[^.]+$/, '').replace(/[\[\]]/g, '').trim() || '文章图片';
       const markdown =
         kind === 'audio'
-          ? `\n\n@[audio:${audioTitle}](./audio/${savedName})\n`
-          : `\n\n![${file.name}](./images/${savedName})\n`;
-      updateDraft({ content: `${draft.content.trimEnd()}${markdown}` });
+          ? `@[audio:${audioTitle}](./audio/${savedName})`
+          : `![${imageAlt}](./images/${savedName})`;
+      insertMediaAtSelection(markdown);
       setState('success');
       setMessage(`${kind === 'audio' ? '音频' : '图片'}已上传并插入正文。`);
     } catch (error) {
@@ -3060,9 +3228,10 @@ function AdminWorkspace({
     setState('publishing');
     setDeploymentStage(1);
     setPublishRetryAvailable(false);
-    setMessage('正在保存文章并创建安全备份…');
+    setMessage('文章校验通过，正在创建安全备份…');
     try {
       const previousRun = await latestRun().catch(() => null);
+      setDeploymentStage(2);
       const result = await contentRequest<{ status: 'pending' | 'published'; posts?: Post[]; post?: Post; sha?: string }>('/api/content/articles', {
         method: 'POST', body: JSON.stringify({ post: preview, editingId, baseSha: contentSha }),
       });
@@ -3075,6 +3244,7 @@ function AdminWorkspace({
       if (result.sha) setContentSha(result.sha);
       setDirty(false);
       localStorage.removeItem('nekopress-draft');
+      localStorage.removeItem('nekopress-active-draft');
       setSavedDrafts((currentDrafts) => {
         const nextDrafts = currentDrafts.filter(
           (item) => item.id !== activeDraftId,
@@ -3082,7 +3252,7 @@ function AdminWorkspace({
         localStorage.setItem('nekopress-drafts', JSON.stringify(nextDrafts));
         return nextDrafts;
       });
-      setDeploymentStage(2);
+      setDeploymentStage(3);
       setMessage('文章已写入 GitHub，正在启动网站部署…');
       await waitForDeployment(previousRun?.id ?? null);
     } catch (error) {
@@ -3101,7 +3271,7 @@ function AdminWorkspace({
     try {
       const result = await contentRequest<{ posts: Post[] }>(`/api/content/articles/${encodeURIComponent(post.id)}`, { method: 'DELETE' });
       applyPosts(result.posts);
-      if (String(editingId) === String(post.id)) newPost();
+      if (String(editingId) === String(post.id)) resetNewPost();
       setState('success'); setMessage('文章已删除，网站正在更新。');
     } catch (error) {
       setState('error');
@@ -3467,10 +3637,19 @@ function AdminWorkspace({
                   </Button>
                 )}
                 {panel === 'editor' && (
+                  <div className="editor-view-switch" role="group" aria-label="编辑器布局">
+                    <button type="button" className={editorView === 'edit' ? 'active' : ''} onClick={() => setEditorView('edit')}><PenLine />编辑</button>
+                    <button type="button" className={editorView === 'split' ? 'active' : ''} onClick={() => setEditorView('split')}><List />分栏</button>
+                    <button type="button" className={editorView === 'preview' ? 'active' : ''} onClick={() => setEditorView('preview')}><Eye />预览</button>
+                  </div>
+                )}
+                {panel === 'editor' && (
                   <Button
                     className="focus-toggle"
                     variant="outline"
                     onClick={() => setFocusMode(!focusMode)}
+                    aria-pressed={focusMode}
+                    title="Ctrl/⌘ + Shift + F"
                   >
                     {focusMode ? <Minimize2 /> : <Maximize2 />}
                     {focusMode ? '退出专注' : '专注模式'}
@@ -3506,21 +3685,31 @@ function AdminWorkspace({
               <div className="deployment-progress">
                 <div className={deploymentStage >= 1 ? 'done' : ''}>
                   <span>{deploymentStage > 1 ? <CheckCircle2 /> : '1'}</span>
-                  <b>保存内容</b>
+                  <b>校验文章</b>
                 </div>
                 <i />
                 <div className={deploymentStage >= 2 ? 'done' : ''}>
                   <span>{deploymentStage > 2 ? <CheckCircle2 /> : '2'}</span>
-                  <b>提交 GitHub</b>
+                  <b>创建备份</b>
                 </div>
                 <i />
                 <div className={deploymentStage >= 3 ? 'done' : ''}>
                   <span>{deploymentStage > 3 ? <CheckCircle2 /> : '3'}</span>
-                  <b>构建网站</b>
+                  <b>写入内容</b>
                 </div>
                 <i />
                 <div className={deploymentStage >= 4 ? 'done' : ''}>
-                  <span>{deploymentStage >= 4 ? <CheckCircle2 /> : '4'}</span>
+                  <span>{deploymentStage > 4 ? <CheckCircle2 /> : '4'}</span>
+                  <b>启动部署</b>
+                </div>
+                <i />
+                <div className={deploymentStage >= 5 ? 'done' : ''}>
+                  <span>{deploymentStage > 5 ? <CheckCircle2 /> : '5'}</span>
+                  <b>构建网站</b>
+                </div>
+                <i />
+                <div className={deploymentStage >= 6 ? 'done' : ''}>
+                  <span>{deploymentStage >= 6 ? <CheckCircle2 /> : '6'}</span>
                   <b>正式上线</b>
                 </div>
               </div>
@@ -3916,11 +4105,9 @@ function AdminWorkspace({
                               onClick={() => {
                                 const markdown =
                                   item.type === 'audio'
-                                    ? `\n\n@[audio:文章音频](${item.url})\n`
-                                    : `\n\n![图片说明](${item.url})\n`;
-                                updateDraft({
-                                  content: `${draft.content.trimEnd()}${markdown}`,
-                                });
+                                    ? `@[audio:文章音频](${item.url})`
+                                    : `![${item.name.replace(/\.[^.]+$/, '').replace(/[\[\]]/g, '') || '文章图片'}](${item.url})`;
+                                insertMediaAtSelection(markdown);
                                 setPanel('editor');
                               }}
                             >
@@ -4179,7 +4366,7 @@ function AdminWorkspace({
             )}
 
             {panel === 'editor' && (
-              <div className="editor-workspace">
+              <div className={`editor-workspace view-${editorView}`}>
                 {editingId && (
                   <div className="editing-context">
                     <span>
@@ -4216,7 +4403,7 @@ function AdminWorkspace({
                   </button>
                 </div>
                 <form
-                  className={`editor-panel ${mobilePreview ? 'mobile-hidden' : ''}`}
+                  className={`editor-panel ${mobilePreview ? 'mobile-hidden' : ''} ${editorView === 'preview' ? 'desktop-hidden' : ''}`}
                   onSubmit={(event) => {
                     event.preventDefault();
                     setShowPublishCheck(true);
@@ -4242,6 +4429,29 @@ function AdminWorkspace({
                         /3 已完成
                       </span>
                     </div>
+                    <div className="template-picker">
+                      <span><Sparkles />写作模板</span>
+                      <select
+                        aria-label="选择文章模板"
+                        defaultValue=""
+                        onChange={(event) => {
+                          const template = [...articleTemplates, ...customTemplates].find((item) => item.id === event.target.value);
+                          if (template) applyArticleTemplate(template);
+                          event.currentTarget.value = '';
+                        }}
+                      >
+                        <option value="" disabled>选择模板…</option>
+                        <optgroup label="内置模板">
+                          {articleTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+                        </optgroup>
+                        {customTemplates.length > 0 && (
+                          <optgroup label="我的模板">
+                            {customTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+                          </optgroup>
+                        )}
+                      </select>
+                      <button type="button" onClick={saveAsTemplate}><Save />保存当前结构</button>
+                    </div>
                     <div className="writer-title">
                       <Input
                         className="title-input"
@@ -4262,9 +4472,16 @@ function AdminWorkspace({
                         {editingId ? '正在编辑已发布文章' : '新文章'}
                       </p>
                     </div>
+                    <details className="article-settings">
+                      <summary>
+                        <span><Settings /><b>文章设置</b><small>分类、作者、链接、封面与摘要</small></span>
+                        <em>{[draft.category, draft.author, draft.slug, draft.excerpt].filter((value) => value.trim()).length}/4</em>
+                      </summary>
+                      <div className="article-settings-body">
                     <div className="editor-meta-strip">
                       <Field label="分类">
                         <Input
+                          list="article-category-options"
                           value={draft.category}
                           onChange={(e) => {
                             const category = e.target.value;
@@ -4276,6 +4493,9 @@ function AdminWorkspace({
                             });
                           }}
                         />
+                        <datalist id="article-category-options">
+                          {categories.filter((category) => category !== '全部').map((category) => <option key={category} value={category} />)}
+                        </datalist>
                       </Field>
                       <Field label="作者">
                         <Input
@@ -4307,6 +4527,16 @@ function AdminWorkspace({
                             新文章会根据标题自动填写；也可以粘贴完整文章网址自动识别。
                           </small>
                         )}
+                      </Field>
+                      <Field label="标签">
+                        <Input
+                          value={draft.tags.join('、')}
+                          onChange={(event) => updateDraft({
+                            tags: Array.from(new Set(event.target.value.split(/[,，、]/).map((item) => item.trim()).filter(Boolean))).slice(0, 8),
+                          })}
+                          placeholder="开发、随笔、旅行"
+                        />
+                        <small className="token-hint">用逗号或顿号分隔，最多 8 个标签。</small>
                       </Field>
                     </div>
                     <Field label="封面图片">
@@ -4497,6 +4727,33 @@ function AdminWorkspace({
                         placeholder="用一两句话说明这篇文章讲什么"
                       />
                     </Field>
+                    <details className="seo-settings">
+                      <summary>SEO 与分享预览</summary>
+                      <div className="seo-fields">
+                        <Field label="SEO 标题">
+                          <Input
+                            value={draft.seoTitle}
+                            onChange={(event) => updateDraft({ seoTitle: event.target.value })}
+                            placeholder={draft.title || '默认使用文章标题'}
+                          />
+                          <small className="token-hint">{(draft.seoTitle || draft.title).length} 字，建议不超过 60 字，不作强制限制。</small>
+                        </Field>
+                        <Field label="SEO 描述">
+                          <Textarea
+                            value={draft.seoDescription}
+                            onChange={(event) => updateDraft({ seoDescription: event.target.value })}
+                            placeholder={draft.excerpt || '默认使用文章摘要'}
+                          />
+                        </Field>
+                        <div className="search-card-preview">
+                          <small>gec8.github.io/MyBlog/post/{draft.slug || 'article-url'}</small>
+                          <b>{draft.seoTitle || draft.title || '文章标题'}</b>
+                          <p>{draft.seoDescription || draft.excerpt || '文章摘要将显示在这里。'}</p>
+                        </div>
+                      </div>
+                    </details>
+                      </div>
+                    </details>
                     {contentWarnings.length > 0 && (
                       <div className="content-warnings">
                         <b>写作建议</b>
@@ -4863,7 +5120,7 @@ function AdminWorkspace({
                     )}
                     <details>
                       <summary>历史版本（{versions.length}）</summary>
-                      {versions.slice(0, 5).map((item) => (
+                      {versions.filter((item) => !item.parentId || item.parentId === activeDraftId).slice(0, 5).map((item) => (
                         <button
                           type="button"
                           key={item.id}
@@ -4872,15 +5129,16 @@ function AdminWorkspace({
                             setDirty(true);
                           }}
                         >
-                          {new Date(item.savedAt).toLocaleString('zh-CN')} ·
-                          恢复
+                          <b>{new Date(item.savedAt).toLocaleString('zh-CN')}</b>
+                          <small>{draftDiffSummary(draft, item.draft)}</small>
+                          <span>恢复</span>
                         </button>
                       ))}
                     </details>
                   </aside>
                 )}
                 <aside
-                  className={`preview-panel article-preview preview-${previewSize} ${mobilePreview ? 'mobile-visible' : ''}`}
+                  className={`preview-panel article-preview preview-${previewSize} ${mobilePreview ? 'mobile-visible' : ''} ${editorView === 'edit' ? 'desktop-hidden' : ''}`}
                 >
                   <div className="preview-browser">
                     <i />
@@ -5441,6 +5699,78 @@ function AdminWorkspace({
           </section>
         </div>
       )}
+      {showDraftRecovery && recoveryDrafts.length > 0 && (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="publish-check recovery-check"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="recovery-check-title"
+          >
+            <header>
+              <span><RotateCcw /></span>
+              <div>
+                <h2 id="recovery-check-title">发现上次未完成的文章</h2>
+                <p>请选择要继续的版本，不会自动覆盖任何内容。</p>
+              </div>
+            </header>
+            <div className="recovery-options">
+              {recoveryDrafts.map((item) => (
+                <button
+                  type="button"
+                  key={`${item.source}-${item.id}-${item.savedAt}`}
+                  onClick={() => {
+                    applySavedDraft(item);
+                    setShowDraftRecovery(false);
+                  }}
+                >
+                  <span>{item.source === 'cloud' ? '云端版本' : '本机版本'}</span>
+                  <b>{item.draft.title || '未命名文章'}</b>
+                  <small>{new Date(item.savedAt).toLocaleString('zh-CN')} · {item.draft.content.replace(/\s/g, '').length} 字</small>
+                </button>
+              ))}
+            </div>
+            <footer>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowDraftRecovery(false);
+                  resetNewPost();
+                }}
+              >从空白文章开始</Button>
+            </footer>
+          </section>
+        </div>
+      )}
+      {showUnsavedPrompt && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={() => setShowUnsavedPrompt(false)}
+        >
+          <section
+            className="publish-check unsaved-check"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="unsaved-check-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <span><Save /></span>
+              <div>
+                <h2 id="unsaved-check-title">当前文章还有未保存更改</h2>
+                <p>可以先保存为草稿，或放弃这次更改后继续。</p>
+              </div>
+              <button onClick={() => setShowUnsavedPrompt(false)} aria-label="关闭"><X /></button>
+            </header>
+            <footer>
+              <Button variant="outline" onClick={() => setShowUnsavedPrompt(false)}>继续编辑</Button>
+              <Button className="danger-confirm" variant="outline" onClick={() => completeEditorTransition(false)}>放弃更改</Button>
+              <Button onClick={() => completeEditorTransition(true)}><Save />保存草稿并继续</Button>
+            </footer>
+          </section>
+        </div>
+      )}
       {showPublishCheck && (
         <div
           className="modal-backdrop"
@@ -5470,11 +5800,11 @@ function AdminWorkspace({
               </button>
             </header>
             <ul>
-              <li className={draft.title.trim().length >= 4 ? 'ok' : 'error'}>
-                <span>{draft.title.trim().length >= 4 ? <CheckCircle2 /> : '1'}</span>
+              <li className={draft.title.trim() ? 'ok' : 'error'}>
+                <span>{draft.title.trim() ? <CheckCircle2 /> : '1'}</span>
                 <div>
                   <b>文章标题</b>
-                  <small>{draft.title.trim() ? `${draft.title.trim().length} 字${draft.title.trim().length < 4 ? '，至少需要 4 个字' : ''}` : '尚未填写'}</small>
+                  <small>{draft.title.trim() ? `${draft.title.trim().length} 字` : '尚未填写'}</small>
                 </div>
               </li>
               <li className={!slugDuplicate && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(draft.slug) ? 'ok' : 'error'}>
@@ -5494,18 +5824,18 @@ function AdminWorkspace({
               </li>
               <li
                 className={
-                  draft.excerpt.trim().length >= 20 ? 'ok' : 'error'
+                  draft.excerpt.trim() ? 'ok' : 'error'
                 }
               >
                 <span>
-                  {draft.excerpt.trim().length >= 20 ? <CheckCircle2 /> : '3'}
+                  {draft.excerpt.trim() ? <CheckCircle2 /> : '3'}
                 </span>
                 <div>
                   <b>文章摘要</b>
                   <small>
                     {draft.excerpt.trim()
-                      ? `${draft.excerpt.length} 字${draft.excerpt.length < 20 ? '，建议至少 20 字' : ''}`
-                      : '请填写至少 20 字的摘要'}
+                      ? `${draft.excerpt.length} 字`
+                      : '请填写文章摘要'}
                   </small>
                 </div>
               </li>
@@ -5550,6 +5880,17 @@ function AdminWorkspace({
                         : draftMedia.length
                           ? `已检查 ${draftMedia.length} 个媒体链接`
                           : '正文未使用媒体'}
+                  </small>
+                </div>
+              </li>
+              <li className={markdownBlockers.length ? 'error' : 'ok'}>
+                <span>{markdownBlockers.length ? '!' : <CheckCircle2 />}</span>
+                <div>
+                  <b>Markdown 与署名</b>
+                  <small>
+                    {markdownBlockers.length
+                      ? markdownBlockers.join('；')
+                      : '代码块、链接、图片说明和封面署名均正常'}
                   </small>
                 </div>
               </li>

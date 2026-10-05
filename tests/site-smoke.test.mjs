@@ -206,7 +206,8 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(source, /账号与发布服务正常/);
   assert.match(source, /GitHub 发布/);
   assert.match(source, /更多后台栏目/);
-  assert.match(source, /保存内容/);
+  assert.match(source, /校验文章/);
+  assert.match(source, /创建备份/);
   assert.match(source, /构建网站/);
   assert.match(source, /提交审核/);
   assert.match(source, /文章审核/);

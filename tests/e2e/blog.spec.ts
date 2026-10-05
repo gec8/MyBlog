@@ -78,7 +78,7 @@ async function largeLightSurfaces(page: Page) {
       if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.1) continue;
       const colors = `${style.backgroundColor} ${style.backgroundImage}`.matchAll(/rgba?\(\s*(\d+)[, ]+\s*(\d+)[, ]+\s*(\d+)/g);
       const hasLightBackground = [...colors].some((match) => Number(match[1]) > 238 && Number(match[2]) > 238 && Number(match[3]) > 238);
-      if (hasLightBackground) results.push(`${element.tagName.toLowerCase()}.${element.className}`.slice(0, 140));
+      if (hasLightBackground) results.push(`${element.tagName.toLowerCase()}|parent=${element.parentElement?.className || ''}|bg=${style.backgroundColor}|class=${element.className}`.slice(0, 300));
     }
     return [...new Set(results)].slice(0, 20);
   });
@@ -255,4 +255,29 @@ test('管理员可进入写作、媒体上传、删除恢复与健康状态', as
   await expect(page.getByText(/备份已恢复/)).toBeVisible();
   await page.getByRole('button', { name: '概览' }).click();
   await expect(page.getByText('网站健康状态')).toBeVisible();
+});
+
+test('新建文章支持模板、折叠设置、布局切换与未保存保护', async ({ page }) => {
+  await login(page, 'owner');
+  await page.getByRole('button', { name: '新文章' }).click();
+  await expect(page.getByRole('heading', { name: '写一篇新文章' })).toBeVisible();
+
+  await page.getByLabel('选择文章模板').selectOption('dev-note');
+  await page.getByText('文章设置', { exact: true }).click();
+  await expect(page.getByLabel('分类')).toHaveValue('开发');
+  await page.getByPlaceholder('给这篇文章一个好标题').fill('短');
+  await page.getByPlaceholder('用一两句话说明这篇文章讲什么').fill('短');
+  await page.locator('.content-editor').fill('## 正文\n\n这是用于验证取消标题和摘要最少字数限制的文章正文，正文仍保留基本完整性检查。');
+
+  await page.getByRole('button', { name: '发布文章' }).click();
+  await expect(page.getByRole('heading', { name: '发布前检查' })).toBeVisible();
+  await expect(page.getByText('标题至少需要 4 个字')).toHaveCount(0);
+  await expect(page.getByText('摘要至少需要 20 个字')).toHaveCount(0);
+  await page.getByRole('button', { name: '继续编辑' }).click();
+
+  await page.locator('.editor-view-switch').getByRole('button', { name: '预览', exact: true }).click();
+  await expect(page.locator('.editor-workspace')).toHaveClass(/view-preview/);
+  await page.locator('.editor-view-switch').getByRole('button', { name: '编辑', exact: true }).click();
+  await page.getByRole('button', { name: '新文章' }).click();
+  await expect(page.getByRole('heading', { name: '当前文章还有未保存更改' })).toBeVisible();
 });

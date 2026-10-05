@@ -524,10 +524,8 @@ function articleValue(data: Record<string, unknown>) {
   const excerpt = typeof post.excerpt === 'string' ? post.excerpt.trim() : '';
   const category = typeof post.category === 'string' ? post.category.trim() : '';
   const author = typeof post.author === 'string' ? post.author.trim() : '';
-  if (!title || !slug || !content)
-    throw new HttpError(400, '文章标题、链接和正文不能为空。');
-  if (title.length < 4) throw new HttpError(400, '文章标题至少需要 4 个字。');
-  if (excerpt.length < 20) throw new HttpError(400, '文章摘要至少需要 20 个字。');
+  if (!title || !slug || !excerpt || !content)
+    throw new HttpError(400, '文章标题、链接、摘要和正文不能为空。');
   if (content.replace(/\s/g, '').length < 50) throw new HttpError(400, '正文至少需要 50 个字。');
   if (!category || !author) throw new HttpError(400, '文章分类和作者不能为空。');
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) throw new HttpError(400, '文章链接只能使用小写英文字母、数字和连字符。');

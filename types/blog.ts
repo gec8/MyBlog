@@ -5,6 +5,9 @@ export type Post = {
   title: string;
   excerpt: string;
   category: string;
+  tags?: string[];
+  seoTitle?: string;
+  seoDescription?: string;
   author: string;
   date: string;
   readMinutes: number;
@@ -36,6 +39,9 @@ export type Draft = {
   slug: string;
   excerpt: string;
   category: string;
+  tags: string[];
+  seoTitle: string;
+  seoDescription: string;
   author: string;
   coverImage: string;
   coverCredit: string;
@@ -47,7 +53,7 @@ export type Draft = {
   content: string;
 };
 
-export type SavedDraft = { id: string; savedAt: string; draft: Draft };
+export type SavedDraft = { id: string; savedAt: string; draft: Draft; parentId?: string };
 
 export type RepoMedia = {
   name: string;
