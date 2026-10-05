@@ -13,11 +13,17 @@ function absoluteAsset(source?: string) {
   return `${siteUrl}/${source.replace(/^\.?(?:\/|\\)/, '')}`;
 }
 
-export function generateStaticParams() { return posts.map((post) => ({ slug: post.slug })); }
+function findPost(slug: string) {
+  return posts.find((item) => item.slug === slug || item.legacySlugs?.includes(slug));
+}
+
+export function generateStaticParams() {
+  return posts.flatMap((post) => [post.slug, ...(post.legacySlugs ?? [])].map((slug) => ({ slug })));
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const post = posts.find((item) => item.slug === decodeURIComponent(slug));
+  const post = findPost(decodeURIComponent(slug));
   if (!post) return { title: '文章不存在' };
   const canonical = `${siteUrl}/post/${encodeURIComponent(post.slug)}`;
   const image = absoluteAsset(post.coverImage);
@@ -26,7 +32,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 export default async function PostPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const post = posts.find((item) => item.slug === decodeURIComponent(slug));
+  const post = findPost(decodeURIComponent(slug));
   if (!post) notFound();
   const url = `${siteUrl}/post/${encodeURIComponent(post.slug)}`;
   const structuredData = { '@context': 'https://schema.org', '@type': 'BlogPosting', headline: post.title, description: post.excerpt, datePublished: post.date, dateModified: post.date, author: { '@type': 'Person', name: post.author }, image: absoluteAsset(post.coverImage), mainEntityOfPage: url };

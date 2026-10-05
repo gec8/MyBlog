@@ -3,9 +3,34 @@ import { expect, test, type Page } from '@playwright/test';
 const worker = 'https://nekopress-auth.wangshirufengabc.workers.dev';
 const owner = { id: 'owner-1', username: 'owner', displayName: '站长', role: 'owner', enabled: true, mustChangePassword: false, createdAt: '2026-01-01', lastLoginAt: null };
 const author = { ...owner, id: 'author-1', username: 'author', displayName: '作者', role: 'author' };
-const post = { id: 'post-1', slug: 'browser-test', title: '浏览器测试文章', excerpt: '用于测试编辑与删除流程。', category: '测试', author: '站长', date: '2026-01-01', readMinutes: 1, content: '## 正文\n\n测试内容。' };
+const post = {
+  id: 'post-1',
+  slug: 'browser-test',
+  legacySlugs: ['旧浏览器测试'],
+  title: '浏览器测试文章',
+  excerpt: '这是一段用于验证文章编辑、发布、删除和恢复完整流程的测试摘要。',
+  category: '测试',
+  author: '站长',
+  date: '2026-01-01',
+  readMinutes: 1,
+  content: '## 正文\n\n这是一段用于真实浏览器自动化测试的文章正文，内容长度足以通过发布前质量检查，并验证编辑、发布、删除与恢复流程均可正常工作。',
+};
 
 async function mockBackend(page: Page, role: 'owner' | 'author' = 'owner') {
+  let deploymentChecks = 0;
+  await page.route('https://api.github.com/repos/**/actions/runs**', async (route) => {
+    deploymentChecks += 1;
+    return route.fulfill({
+      json: {
+        workflow_runs: [{
+          id: deploymentChecks === 1 ? 1 : 2,
+          name: 'Deploy NekoNote to GitHub Pages',
+          status: deploymentChecks === 1 ? 'completed' : 'completed',
+          conclusion: 'success',
+        }],
+      },
+    });
+  });
   await page.route(`${worker}/**`, async (route) => {
     const url = new URL(route.request().url());
     const user = role === 'owner' ? owner : author;
@@ -31,6 +56,15 @@ async function login(page: Page, role: 'owner' | 'author' = 'owner') {
   await page.getByLabel('密码').fill('abc123');
   await page.getByRole('button', { name: '登录后台' }).click();
   await expect(page.getByRole('heading', { name: /晚上好/ })).toBeVisible();
+}
+
+async function openAdminPanel(page: Page, label: string) {
+  const navigation = page.locator('.admin-sidebar nav');
+  const target = navigation.getByRole('button', { name: new RegExp(`^${label}`) });
+  if (!(await target.isVisible())) {
+    await navigation.getByRole('button', { name: '更多后台栏目' }).click();
+  }
+  await target.click();
 }
 
 async function largeLightSurfaces(page: Page) {
@@ -131,7 +165,14 @@ test('手机深色模式覆盖前台和全部后台栏目', async ({ page }) => 
 
   await login(page, 'owner');
   const navigation = page.locator('.admin-sidebar nav');
-  for (const label of ['概览', '文章', '写作', '媒体', '草稿', '审核', '备份', '设置', '用户']) {
+  for (const label of ['概览', '文章', '写作', '媒体']) {
+    await navigation.getByRole('button', { name: new RegExp(`^${label}`) }).click();
+    await page.waitForTimeout(80);
+    expect(await largeLightSurfaces(page), `${label}仍有浅色大面积背景`).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${label}发生横向溢出`).toBeLessThanOrEqual(1);
+  }
+  for (const label of ['草稿', '审核', '备份', '设置', '用户']) {
+    await navigation.getByRole('button', { name: '更多后台栏目' }).click();
     await navigation.getByRole('button', { name: new RegExp(`^${label}`) }).click();
     await page.waitForTimeout(80);
     expect(await largeLightSurfaces(page), `${label}仍有浅色大面积背景`).toEqual([]);
@@ -143,7 +184,8 @@ test('新用户可以登录，作者权限不会显示用户与全站设置', as
   await login(page, 'author');
   await expect(page.getByRole('button', { name: '用户' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /设置/ })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /审核/ })).toBeVisible();
+  await openAdminPanel(page, '审核');
+  await expect(page.getByRole('heading', { name: /文章审核/ })).toBeVisible();
 });
 
 test('管理员可进入写作、媒体上传、删除恢复与健康状态', async ({ page }) => {
@@ -157,7 +199,7 @@ test('管理员可进入写作、媒体上传、删除恢复与健康状态', as
   await expect(page.getByRole('heading', { name: '媒体资源', level: 1 })).toBeVisible();
   await page.locator('input[type="file"][multiple]').setInputFiles({ name: 'test.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2h8sAAAAASUVORK5CYII=', 'base64') });
   await expect(page.getByText(/已上传并加入列表/)).toBeVisible();
-  await page.getByRole('button', { name: '备份', exact: true }).click();
+  await openAdminPanel(page, '备份');
   await expect(page.getByText('文章备份')).toBeVisible();
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: '恢复此版本' }).click();

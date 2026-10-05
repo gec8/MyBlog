@@ -276,3 +276,30 @@ nav{display:flex;align-items:center;gap:8px}nav button{display:inline-flex;align
 .workspace-id>span .brand-mark{width:38px;height:38px}
 .site-error>span .brand-mark{width:40px;height:40px}
 @media (max-width:480px){.brand-wordmark{gap:5px}.brand-wordmark small{font-size:.52em}}
+
+/* Focused mobile admin navigation, explicit service state and deployment recovery */
+.mobile-more-menu{display:contents}.mobile-more-trigger{display:none!important}
+.connected-chip.has-error{background:#fff0f1;color:#a43c4c}
+.connection-card{display:grid;gap:7px}.connection-card>b{margin:0 0 2px}
+.connection-card>span.connection-row{display:flex;margin:0;color:#777178;font-size:.58rem;font-weight:750}
+.connection-row i{flex:0 0 auto}.connection-row.online{color:#4f7958}.connection-row.checking{color:#92712f}.connection-row.offline{color:#b33e51}
+.connection-row.checking i{background:#d7a74c}.connection-row.offline i{background:#d65569}
+.connection-card>p{margin:2px 0 0}
+.deployment-progress{grid-template-columns:auto 1fr auto 1fr auto 1fr auto}
+.status-actions{display:flex;gap:6px;margin-left:auto}.status-actions button{display:inline-flex;align-items:center;gap:4px;border:1px solid currentColor;border-radius:8px;background:transparent;padding:6px 9px;color:inherit;cursor:pointer;font-size:.6rem;font-weight:800}.status-actions svg{width:12px}
+
+@media(max-width:760px){
+  .admin-sidebar nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));overflow:visible}
+  .admin-sidebar nav>button{width:100%;min-width:0;min-height:51px;flex:none}
+  .mobile-more-trigger{display:flex!important}
+  .mobile-more-menu{position:absolute;right:0;bottom:calc(100% + 9px);display:none;width:min(230px,calc(100vw - 28px));gap:4px;border:1px solid var(--line);border-radius:16px;background:var(--panel);padding:8px;box-shadow:0 18px 50px rgba(30,20,25,.2)}
+  .mobile-more-menu.open{display:grid}
+  .mobile-more-menu button{display:flex!important;width:100%!important;min-height:42px!important;flex-direction:row!important;justify-content:flex-start!important;gap:8px!important;padding:8px 11px!important;font-size:.68rem!important}
+  .mobile-more-menu button.active::before{top:50%!important;bottom:auto!important;left:2px!important;width:3px!important;height:18px!important;transform:translateY(-50%)!important}
+  .deployment-progress{grid-template-columns:auto 1fr auto 1fr auto 1fr auto}
+  .status-actions{width:100%;margin:7px 0 0}.workspace-status{flex-wrap:wrap}
+}
+@media(prefers-color-scheme:dark){
+  .connected-chip.has-error{background:#3a2026;color:#ffb4bf}
+  .mobile-more-menu{border-color:rgba(255,255,255,.12);background:#29262b;box-shadow:0 18px 50px rgba(0,0,0,.36)}
+}

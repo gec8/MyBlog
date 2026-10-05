@@ -1,7 +1,8 @@
 [
   {
     "id": "科技-1789087114764",
-    "slug": "科技",
+    "slug": "technology-notes",
+    "legacySlugs": ["科技"],
     "title": "科技",
     "excerpt": "今天是美好的一天",
     "category": "随笔",
@@ -20,7 +21,8 @@
   },
   {
     "id": "诗歌-1788994675671",
-    "slug": "诗歌",
+    "slug": "poetry-sharing",
+    "legacySlugs": ["诗歌"],
     "title": "诗歌",
     "excerpt": "诗歌分享",
     "category": "随笔",

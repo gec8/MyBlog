@@ -1,6 +1,7 @@
 export type Post = {
   id: string;
   slug: string;
+  legacySlugs?: string[];
   title: string;
   excerpt: string;
   category: string;

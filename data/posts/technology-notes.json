@@ -1,6 +1,7 @@
 {
   "id": "科技-1789087114764",
-  "slug": "科技",
+  "slug": "technology-notes",
+  "legacySlugs": ["科技"],
   "title": "科技",
   "excerpt": "今天是美好的一天",
   "category": "随笔",

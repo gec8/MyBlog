@@ -1,6 +1,7 @@
 {
   "id": "诗歌-1788994675671",
-  "slug": "诗歌",
+  "slug": "poetry-sharing",
+  "legacySlugs": ["诗歌"],
   "title": "诗歌",
   "excerpt": "诗歌分享",
   "category": "随笔",

@@ -178,7 +178,11 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(source, /填写账号和登录密码/);
   assert.match(source, /新用户默认使用“作者”权限/);
   assert.match(source, /function UserManagement/);
-  assert.match(source, /安全发布已启用/);
+  assert.match(source, /账号与发布服务正常/);
+  assert.match(source, /GitHub 发布/);
+  assert.match(source, /更多后台栏目/);
+  assert.match(source, /保存内容/);
+  assert.match(source, /构建网站/);
   assert.match(source, /提交审核/);
   assert.match(source, /文章审核/);
   assert.match(source, /deleteTarget/);

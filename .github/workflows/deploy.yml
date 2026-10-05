@@ -1,4 +1,4 @@
-name: Deploy NekoPress to GitHub Pages
+name: Deploy NekoNote to GitHub Pages
 
 on:
   push:

@@ -513,8 +513,20 @@ async function writeGithubJson(env: Env, path: string, value: unknown, message: 
 }
 function articleValue(data: Record<string, unknown>) {
   const post = data.post as Record<string, unknown> | undefined;
-  if (!post || !String(post.title ?? '').trim() || !String(post.slug ?? '').trim() || !String(post.content ?? '').trim())
+  if (!post) throw new HttpError(400, '文章标题、链接和正文不能为空。');
+  const title = typeof post.title === 'string' ? post.title.trim() : '';
+  const slug = typeof post.slug === 'string' ? post.slug.trim() : '';
+  const content = typeof post.content === 'string' ? post.content.trim() : '';
+  const excerpt = typeof post.excerpt === 'string' ? post.excerpt.trim() : '';
+  const category = typeof post.category === 'string' ? post.category.trim() : '';
+  const author = typeof post.author === 'string' ? post.author.trim() : '';
+  if (!title || !slug || !content)
     throw new HttpError(400, '文章标题、链接和正文不能为空。');
+  if (title.length < 4) throw new HttpError(400, '文章标题至少需要 4 个字。');
+  if (excerpt.length < 20) throw new HttpError(400, '文章摘要至少需要 20 个字。');
+  if (content.replace(/\s/g, '').length < 50) throw new HttpError(400, '正文至少需要 50 个字。');
+  if (!category || !author) throw new HttpError(400, '文章分类和作者不能为空。');
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) throw new HttpError(400, '文章链接只能使用小写英文字母、数字和连字符。');
   return post;
 }
 async function listArticles(env: Env, cors: Record<string, string>) {
@@ -527,9 +539,13 @@ async function publishArticle(env: Env, post: Record<string, unknown>, editingId
   const original = editingId ? current.data.find((item) => String(item.id) === editingId) : undefined;
   if (editingId && !original) throw new HttpError(409, '原文章已被删除或更改，请刷新后重试。');
   const slug = String(post.slug);
-  if (current.data.some((item) => String(item.slug) === slug && String(item.id) !== editingId))
+  if (current.data.some((item) => (String(item.slug) === slug || (Array.isArray(item.legacySlugs) && item.legacySlugs.map(String).includes(slug))) && String(item.id) !== editingId))
     throw new HttpError(409, '文章链接已存在，请修改后再发布。');
-  const nextPost = { ...post, id: editingId || `${slug}-${Date.now()}`, date: original?.date || post.date };
+  const previousAliases = Array.isArray(original?.legacySlugs) ? original.legacySlugs.map(String) : [];
+  const legacySlugs = original && String(original.slug) !== slug
+    ? Array.from(new Set([...previousAliases, String(original.slug)]))
+    : previousAliases;
+  const nextPost = { ...post, ...(legacySlugs.length ? { legacySlugs } : {}), id: editingId || `${slug}-${Date.now()}`, date: original?.date || post.date };
   const nextPosts = editingId ? current.data.map((item) => String(item.id) === editingId ? nextPost : item) : [nextPost, ...current.data];
   let articleSha: string | undefined;
   try { articleSha = (await readGithubJson(env, `data/posts/${slug}.json`)).sha; } catch { /* first independent article file */ }

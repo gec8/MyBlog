@@ -40,6 +40,7 @@ import {
   Maximize2,
   Minus,
   Minimize2,
+  MoreHorizontal,
   Music2,
   Pause,
   Pencil,
@@ -179,7 +180,10 @@ export function BlogApp({
       />
     );
   if (route.view === 'post') {
-    const post = posts.find((item) => item.slug === route.slug);
+    const post = posts.find(
+      (item) =>
+        item.slug === route.slug || item.legacySlugs?.includes(route.slug),
+    );
     return post ? (
       <Article post={post} posts={posts} settings={initialSettings} />
     ) : (
@@ -1495,6 +1499,9 @@ function AdminWorkspace({
   );
   const [siteSettings, setSiteSettings] = useState(initialSettings);
   const [connected, setConnected] = useState(true);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [serviceStatus, setServiceStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [repositoryStatus, setRepositoryStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [contentSha, setContentSha] = useState('');
   const [reviews, setReviews] = useState<ArticleReview[]>([]);
   const [snapshots, setSnapshots] = useState<ContentSnapshot[]>([]);
@@ -1528,7 +1535,8 @@ function AdminWorkspace({
   const [draftStatus, setDraftStatus] = useState('草稿会自动保存在本机');
   const [dirty, setDirty] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-  const [deploymentStage, setDeploymentStage] = useState<0 | 1 | 2 | 3>(0);
+  const [deploymentStage, setDeploymentStage] = useState<0 | 1 | 2 | 3 | 4>(0);
+  const [publishRetryAvailable, setPublishRetryAvailable] = useState(false);
   const [lastRun, setLastRun] = useState<{
     id: number;
     status: string;
@@ -1638,11 +1646,14 @@ function AdminWorkspace({
     return createContentClient(authToken).request<T>(path, options);
   }
   async function syncServerArticles(showResult = false) {
+    setRepositoryStatus('checking');
     try {
       const result = await contentRequest<{ posts: Post[]; sha: string }>('/api/content/articles');
       applyPosts(result.posts); setContentSha(result.sha);
+      setRepositoryStatus('online');
       if (showResult) { setState('success'); setMessage('已同步线上最新文章。'); }
     } catch (error) {
+      setRepositoryStatus('offline');
       if (showResult) { setState('error'); setMessage(error instanceof Error ? error.message : '同步失败。'); }
     }
   }
@@ -1673,6 +1684,9 @@ function AdminWorkspace({
     catch (error) { setState('error'); setMessage(error instanceof Error ? error.message : '恢复失败。'); }
   }
   useEffect(() => {
+    void apiRequest<{ ok: boolean }>('/api/health')
+      .then(() => setServiceStatus('online'))
+      .catch(() => setServiceStatus('offline'));
     void syncServerArticles(); void loadCloudDrafts();
     void contentRequest<{ preferences: { showOutline?: boolean; previewSize?: 'desktop' | 'tablet' | 'mobile' } }>('/api/preferences')
       .then(({ preferences }) => { if (typeof preferences.showOutline === 'boolean') setShowOutline(preferences.showOutline); if (preferences.previewSize) setPreviewSize(preferences.previewSize); })
@@ -1782,7 +1796,7 @@ function AdminWorkspace({
   const preview = useMemo<Post>(
     () => ({
       id: 'preview',
-      slug: draft.slug.trim() || slugify(draft.title) || 'preview',
+      slug: draft.slug.trim() || slugify(draft.title, draft.category) || 'preview',
       title: draft.title || '文章标题',
       excerpt: draft.excerpt || '一句清楚的摘要会帮助读者决定是否继续阅读。',
       category: draft.category,
@@ -1952,6 +1966,12 @@ function AdminWorkspace({
       warnings.push('封面仍是外部链接，建议上传到媒体库');
     if (draft.coverPexelsId && (!draft.coverCredit || !draft.coverCreditUrl))
       warnings.push('Pexels 封面缺少来源署名');
+    if (draft.title.trim().length > 0 && draft.title.trim().length < 4)
+      warnings.push('标题过短，建议写清文章主题');
+    if (draft.excerpt.trim().length > 0 && draft.excerpt.trim().length < 20)
+      warnings.push('摘要不足 20 字，读者难以判断文章内容');
+    if (draft.content.replace(/\s/g, '').length > 0 && draft.content.replace(/\s/g, '').length < 50)
+      warnings.push('正文不足 50 字，建议继续补充');
     return warnings;
   }, [
     draft.content,
@@ -1959,7 +1979,20 @@ function AdminWorkspace({
     draft.coverPexelsId,
     draft.coverCredit,
     draft.coverCreditUrl,
+    draft.title,
+    draft.excerpt,
   ]);
+  const publishBlockers = useMemo(() => {
+    const issues: string[] = [];
+    if (draft.title.trim().length < 4) issues.push('标题至少需要 4 个字');
+    if (draft.excerpt.trim().length < 20) issues.push('摘要至少需要 20 个字');
+    if (draft.content.replace(/\s/g, '').length < 50) issues.push('正文至少需要 50 个字');
+    if (!draft.category.trim()) issues.push('请选择或填写文章分类');
+    if (!draft.author.trim()) issues.push('请填写文章作者');
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(draft.slug)) issues.push('文章链接必须是小写英文、数字或连字符');
+    if (slugDuplicate) issues.push('文章链接已被其他文章使用');
+    return issues;
+  }, [draft.title, draft.excerpt, draft.content, draft.category, draft.author, draft.slug, slugDuplicate]);
   const suggestedCoverQuery = useMemo(
     () => coverKeywords(draft.title, draft.category),
     [draft.title, draft.category],
@@ -2285,7 +2318,7 @@ function AdminWorkspace({
 
   async function latestRun() {
     const response = await fetch(
-      `https://api.github.com/repos/${config.owner.trim()}/${config.repo.trim()}/actions/runs?per_page=1`,
+      `https://api.github.com/repos/${config.owner.trim()}/${config.repo.trim()}/actions/runs?per_page=10`,
       {
         headers: {
           Accept: 'application/vnd.github+json',
@@ -2297,35 +2330,38 @@ function AdminWorkspace({
     const result = (await response.json()) as {
       workflow_runs: {
         id: number;
+        name: string;
         status: string;
         conclusion: string | null;
         html_url: string;
       }[];
     };
-    return result.workflow_runs[0] ?? null;
+    return result.workflow_runs.find((run) => /deploy|pages/i.test(run.name)) ?? result.workflow_runs[0] ?? null;
   }
 
   async function waitForDeployment(previousId: number | null) {
     setState('deploying');
-    setDeploymentStage(1);
+    setDeploymentStage(2);
     setMessage('内容已提交，正在等待 GitHub Pages 开始更新…');
     for (let attempt = 0; attempt < 24; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 5000));
       const run = await latestRun();
       if (!run || (previousId && run.id === previousId)) continue;
       if (run.status !== 'completed') {
-        setDeploymentStage(2);
+        setDeploymentStage(3);
         setMessage('GitHub Pages 正在构建和部署，请稍候…');
         continue;
       }
       if (run.conclusion === 'success') {
         setLastRun(run);
-        setDeploymentStage(3);
+        setDeploymentStage(4);
         setState('success');
+        setPublishRetryAvailable(false);
         setMessage('网站更新完成，最新内容已经上线。');
         return;
       }
       setState('error');
+      setPublishRetryAvailable(true);
       setMessage(
         '内容已提交，但网站构建失败。请前往 GitHub Actions 查看日志。',
       );
@@ -2947,9 +2983,9 @@ function AdminWorkspace({
       );
       return;
     }
-    if (slugDuplicate) {
+    if (publishBlockers.length) {
       setState('error');
-      setMessage('文章链接已被使用，请更换后再发布。');
+      setMessage(`发布前还需处理：${publishBlockers.join('；')}。`);
       return;
     }
     if (mediaCheck !== 'ok') {
@@ -2962,14 +2998,16 @@ function AdminWorkspace({
       return;
     }
     setState('publishing');
-    setDeploymentStage(0);
-    setMessage('');
+    setDeploymentStage(1);
+    setPublishRetryAvailable(false);
+    setMessage('正在保存文章并创建安全备份…');
     try {
+      const previousRun = await latestRun().catch(() => null);
       const result = await contentRequest<{ status: 'pending' | 'published'; posts?: Post[]; post?: Post; sha?: string }>('/api/content/articles', {
         method: 'POST', body: JSON.stringify({ post: preview, editingId, baseSha: contentSha }),
       });
       if (result.status === 'pending') {
-        setState('success'); setMessage('文章已提交审核，编辑审核通过后会自动发布。');
+        setDeploymentStage(0); setState('success'); setMessage('文章已提交审核，编辑审核通过后会自动发布。');
         await loadReviews(); return;
       }
       if (result.posts) applyPosts(result.posts);
@@ -2984,10 +3022,12 @@ function AdminWorkspace({
         localStorage.setItem('nekopress-drafts', JSON.stringify(nextDrafts));
         return nextDrafts;
       });
-      setState('success');
-      setMessage('文章已安全发布，网站正在更新。');
+      setDeploymentStage(2);
+      setMessage('文章已写入 GitHub，正在启动网站部署…');
+      await waitForDeployment(previousRun?.id ?? null);
     } catch (error) {
       setState('error');
+      setPublishRetryAvailable(true);
       setMessage(
         error instanceof Error ? error.message : '发布失败，请稍后重试。',
       );
@@ -3074,8 +3114,13 @@ function AdminWorkspace({
           <span className="cat-logo"><BrandMark /></span><BrandWordmark />
         </button>
         <div>
-          <span className="connected-chip">
-            <CheckCircle2 /> 安全发布已启用
+          <span className={`connected-chip ${serviceStatus === 'offline' || repositoryStatus === 'offline' ? 'has-error' : ''}`}>
+            {serviceStatus === 'online' && repositoryStatus === 'online' ? <CheckCircle2 /> : <LoaderCircle className={serviceStatus === 'checking' || repositoryStatus === 'checking' ? 'spin' : ''} />}
+            {serviceStatus === 'checking' || repositoryStatus === 'checking'
+              ? '正在检查发布服务'
+              : serviceStatus === 'online' && repositoryStatus === 'online'
+                ? '账号与发布服务正常'
+                : '发布服务需要检查'}
           </span>
           <Button variant="ghost" onClick={() => go()}>
             <LogOut />
@@ -3225,80 +3270,82 @@ function AdminWorkspace({
             </div>
             <nav>
               <button
-                className={panel === 'dashboard' ? 'active' : ''}
-                onClick={() => setPanel('dashboard')}
+                className={`primary-nav-item ${panel === 'dashboard' ? 'active' : ''}`}
+                onClick={() => { setPanel('dashboard'); setMobileMoreOpen(false); }}
               >
                 <BarChart3 />
                 概览
               </button>
               <button
-                className={panel === 'posts' ? 'active' : ''}
-                onClick={() => setPanel('posts')}
+                className={`primary-nav-item ${panel === 'posts' ? 'active' : ''}`}
+                onClick={() => { setPanel('posts'); setMobileMoreOpen(false); }}
               >
                 <List />
                 文章 <span>{remotePosts.length}</span>
               </button>
               <button
-                className={panel === 'editor' ? 'active' : ''}
-                onClick={() => setPanel('editor')}
+                className={`primary-nav-item ${panel === 'editor' ? 'active' : ''}`}
+                onClick={() => { setPanel('editor'); setMobileMoreOpen(false); }}
               >
                 <PenLine />
                 写作{dirty && <i className="nav-dot" />}
               </button>
               <button
-                className={panel === 'media' ? 'active' : ''}
-                onClick={() => setPanel('media')}
+                className={`primary-nav-item ${panel === 'media' ? 'active' : ''}`}
+                onClick={() => { setPanel('media'); setMobileMoreOpen(false); }}
               >
                 <ImagePlus />
                 媒体
               </button>
+              <div className={`mobile-more-menu ${mobileMoreOpen ? 'open' : ''}`}>
+                <button
+                  className={panel === 'drafts' ? 'active' : ''}
+                  onClick={() => { setPanel('drafts'); setMobileMoreOpen(false); }}
+                >
+                  <Save />
+                  草稿 <span>{savedDrafts.length}</span>
+                </button>
+                <button className={panel === 'reviews' ? 'active' : ''} onClick={() => { setPanel('reviews'); setMobileMoreOpen(false); }}>
+                  <CheckCircle2 />
+                  审核 <span>{reviews.filter((item) => item.status === 'pending').length}</span>
+                </button>
+                {currentUser.role !== 'author' && <button className={panel === 'backups' ? 'active' : ''} onClick={() => { setPanel('backups'); setMobileMoreOpen(false); }}><RotateCcw />备份</button>}
+                {currentUser.role === 'owner' && (
+                  <button
+                    className={panel === 'settings' ? 'active' : ''}
+                    onClick={() => { setPanel('settings'); setMobileMoreOpen(false); }}
+                  >
+                    <Settings />
+                    设置{settingsDirty && <i className="nav-dot" />}
+                  </button>
+                )}
+                {currentUser.role === 'owner' && (
+                  <button
+                    className={panel === 'users' ? 'active' : ''}
+                    onClick={() => { setPanel('users'); setMobileMoreOpen(false); }}
+                  >
+                    <Users />
+                    用户
+                  </button>
+                )}
+              </div>
               <button
-                className={panel === 'drafts' ? 'active' : ''}
-                onClick={() => setPanel('drafts')}
+                className={`mobile-more-trigger ${mobileMoreOpen || ['drafts', 'reviews', 'backups', 'settings', 'users'].includes(panel) ? 'active' : ''}`}
+                onClick={() => setMobileMoreOpen((open) => !open)}
+                aria-expanded={mobileMoreOpen}
+                aria-label="更多后台栏目"
               >
-                <Save />
-                草稿 <span>{savedDrafts.length}</span>
+                <MoreHorizontal />
+                更多
               </button>
-              <button className={panel === 'reviews' ? 'active' : ''} onClick={() => setPanel('reviews')}>
-                <CheckCircle2 />
-                审核 <span>{reviews.filter((item) => item.status === 'pending').length}</span>
-              </button>
-              {currentUser.role !== 'author' && <button className={panel === 'backups' ? 'active' : ''} onClick={() => setPanel('backups')}><RotateCcw />备份</button>}
-              {currentUser.role === 'owner' && (
-                <button
-                  className={panel === 'settings' ? 'active' : ''}
-                  onClick={() => setPanel('settings')}
-                >
-                  <Settings />
-                  设置{settingsDirty && <i className="nav-dot" />}
-                </button>
-              )}
-              {currentUser.role === 'owner' && (
-                <button
-                  className={panel === 'users' ? 'active' : ''}
-                  onClick={() => setPanel('users')}
-                >
-                  <Users />
-                  用户
-                </button>
-              )}
             </nav>
             <div className="sidebar-bottom">
               <div className="connection-card">
-                <span>
-                  <i />
-                  安全发布服务
-                </span>
-                <b>{config.owner}/{config.repo} · {config.branch}</b>
-                <p>
-                  <LockKeyhole />
-                  {currentUser.displayName} ·{' '}
-                  {currentUser.role === 'owner'
-                    ? '超级管理员'
-                    : currentUser.role === 'editor'
-                      ? '编辑'
-                      : '作者'}
-                </p>
+                <b>连接状态</b>
+                <span className="connection-row online"><i /><LockKeyhole />账号：{currentUser.displayName}</span>
+                <span className={`connection-row ${serviceStatus}`}><i />内容服务：{serviceStatus === 'checking' ? '检查中' : serviceStatus === 'online' ? '正常' : '不可用'}</span>
+                <span className={`connection-row ${repositoryStatus}`}><i /><GitBranch />GitHub 发布：{repositoryStatus === 'checking' ? '检查中' : repositoryStatus === 'online' ? '已连接' : '连接失败'}</span>
+                <p>{config.owner}/{config.repo} · {config.branch}</p>
               </div>
               <button onClick={onAuthLogout}>
                 <LogOut />
@@ -3386,22 +3433,33 @@ function AdminWorkspace({
                   <LoaderCircle className="spin" />
                 ) : null}
                 <span>{message}</span>
+                {publishRetryAvailable && panel === 'editor' && (
+                  <span className="status-actions">
+                    <button type="button" onClick={() => void publish()}><RefreshCw />重新尝试</button>
+                    {currentUser.role !== 'author' && <button type="button" onClick={() => setPanel('backups')}><RotateCcw />恢复版本</button>}
+                  </span>
+                )}
               </output>
             )}
             {deploymentStage > 0 && (
               <div className="deployment-progress">
                 <div className={deploymentStage >= 1 ? 'done' : ''}>
                   <span>{deploymentStage > 1 ? <CheckCircle2 /> : '1'}</span>
-                  <b>提交内容</b>
+                  <b>保存内容</b>
                 </div>
                 <i />
                 <div className={deploymentStage >= 2 ? 'done' : ''}>
                   <span>{deploymentStage > 2 ? <CheckCircle2 /> : '2'}</span>
-                  <b>构建网站</b>
+                  <b>提交 GitHub</b>
                 </div>
                 <i />
                 <div className={deploymentStage >= 3 ? 'done' : ''}>
-                  <span>{deploymentStage >= 3 ? <CheckCircle2 /> : '3'}</span>
+                  <span>{deploymentStage > 3 ? <CheckCircle2 /> : '3'}</span>
+                  <b>构建网站</b>
+                </div>
+                <i />
+                <div className={deploymentStage >= 4 ? 'done' : ''}>
+                  <span>{deploymentStage >= 4 ? <CheckCircle2 /> : '4'}</span>
                   <b>正式上线</b>
                 </div>
               </div>
@@ -4107,7 +4165,7 @@ function AdminWorkspace({
                           updateDraft({
                             title,
                             ...(!editingId && !slugManuallyEdited
-                              ? { slug: title.trim() ? slugify(title) : '' }
+                              ? { slug: title.trim() ? slugify(title, draft.category) : '' }
                               : {}),
                           });
                         }}
@@ -4122,9 +4180,15 @@ function AdminWorkspace({
                       <Field label="分类">
                         <Input
                           value={draft.category}
-                          onChange={(e) =>
-                            updateDraft({ category: e.target.value })
-                          }
+                          onChange={(e) => {
+                            const category = e.target.value;
+                            updateDraft({
+                              category,
+                              ...(!editingId && !slugManuallyEdited && draft.title.trim()
+                                ? { slug: slugify(draft.title, category) }
+                                : {}),
+                            });
+                          }}
                         />
                       </Field>
                       <Field label="作者">
@@ -4144,7 +4208,7 @@ function AdminWorkspace({
                             setSlugManuallyEdited(Boolean(slug));
                             updateDraft({ slug });
                           }}
-                          placeholder={slugify(draft.title) || 'article-url'}
+                          placeholder={slugify(draft.title, draft.category) || 'article-url'}
                           aria-invalid={slugDuplicate}
                         />
                         {slugDuplicate && (
@@ -5303,29 +5367,31 @@ function AdminWorkspace({
               </button>
             </header>
             <ul>
-              <li className={draft.title.trim() ? 'ok' : ''}>
-                <span>{draft.title.trim() ? <CheckCircle2 /> : '1'}</span>
+              <li className={draft.title.trim().length >= 4 ? 'ok' : 'error'}>
+                <span>{draft.title.trim().length >= 4 ? <CheckCircle2 /> : '1'}</span>
                 <div>
                   <b>文章标题</b>
-                  <small>{draft.title.trim() || '尚未填写'}</small>
+                  <small>{draft.title.trim() ? `${draft.title.trim().length} 字${draft.title.trim().length < 4 ? '，至少需要 4 个字' : ''}` : '尚未填写'}</small>
                 </div>
               </li>
-              <li className={!slugDuplicate && draft.slug ? 'ok' : 'error'}>
+              <li className={!slugDuplicate && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(draft.slug) ? 'ok' : 'error'}>
                 <span>
-                  {!slugDuplicate && draft.slug ? <CheckCircle2 /> : '2'}
+                  {!slugDuplicate && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(draft.slug) ? <CheckCircle2 /> : '2'}
                 </span>
                 <div>
                   <b>文章链接</b>
                   <small>
                     {slugDuplicate
                       ? '链接与已有文章重复'
-                      : draft.slug || '请填写文章链接'}
+                      : draft.slug
+                        ? /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(draft.slug) ? draft.slug : '只能使用小写英文、数字和连字符'
+                        : '请填写文章链接'}
                   </small>
                 </div>
               </li>
               <li
                 className={
-                  draft.excerpt.trim().length >= 20 ? 'ok' : 'optional'
+                  draft.excerpt.trim().length >= 20 ? 'ok' : 'error'
                 }
               >
                 <span>
@@ -5336,7 +5402,7 @@ function AdminWorkspace({
                   <small>
                     {draft.excerpt.trim()
                       ? `${draft.excerpt.length} 字${draft.excerpt.length < 20 ? '，建议至少 20 字' : ''}`
-                      : '建议填写简短摘要'}
+                      : '请填写至少 20 字的摘要'}
                   </small>
                 </div>
               </li>
@@ -5344,17 +5410,17 @@ function AdminWorkspace({
                 className={
                   draft.content.replace(/\s/g, '').length >= 50
                     ? 'ok'
-                    : 'optional'
+                    : 'error'
                 }
               >
                 <span>{draft.content.trim() ? <CheckCircle2 /> : '4'}</span>
                 <div>
                   <b>正文内容</b>
                   <small>
-                    {draft.content.replace(/\s/g, '').length} 字 · 约 $
-                    {preview.readMinutes} 分钟$
+                    {draft.content.replace(/\s/g, '').length} 字 · 约{' '}
+                    {preview.readMinutes} 分钟
                     {draft.content.replace(/\s/g, '').length < 50
-                      ? '，内容略短'
+                      ? '，至少需要 50 字'
                       : ''}
                   </small>
                 </div>
@@ -5405,10 +5471,7 @@ function AdminWorkspace({
               </Button>
               <Button
                 disabled={
-                  !draft.title.trim() ||
-                  !draft.content.trim() ||
-                  !draft.slug ||
-                  slugDuplicate ||
+                  publishBlockers.length > 0 ||
                   mediaCheck !== 'ok'
                 }
                 onClick={() => {
@@ -5783,19 +5846,37 @@ function UserManagement({
   );
 }
 
-function slugify(value: string) {
+function textHash(value: string) {
+  let hash = 2166136261;
+  for (const char of value) {
+    hash ^= char.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36).slice(0, 5);
+}
+
+function slugify(value: string, category = 'notes') {
   const latin = value
+    .normalize('NFKD')
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')
+    .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
-  return latin || `post-${new Date().toISOString().slice(0, 10)}`;
+  if (latin) return latin;
+  const categoryKey = /开发|技术|代码/.test(category)
+    ? 'development'
+    : /生活/.test(category)
+      ? 'life'
+      : /诗|文学/.test(category)
+        ? 'writing'
+        : 'notes';
+  return `${categoryKey}-${new Date().toISOString().slice(0, 10)}-${textHash(value)}`;
 }
 
 function slugifyInput(value: string) {
   return value
     .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fff-]+/g, '-')
+    .replace(/[^a-z0-9-]+/g, '-')
     .replace(/-{2,}/g, '-')
     .replace(/^-/, '');
 }
