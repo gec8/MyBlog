@@ -185,11 +185,12 @@ test('手机深色模式覆盖前台和全部后台栏目', async ({ page }) => 
   await expect(page.getByText('外观', { exact: true })).toBeVisible();
   const mobileNavigation = await page.locator('.site-header nav').evaluate((element) => {
     const rect = element.getBoundingClientRect();
-    return { width: rect.width, left: rect.left, top: rect.top, bodyOverflow: document.body.style.overflow };
+    return { width: rect.width, left: rect.left, top: rect.top, background: getComputedStyle(element).backgroundColor, bodyOverflow: document.body.style.overflow };
   });
-  expect(mobileNavigation.width).toBeLessThanOrEqual(321);
-  expect(mobileNavigation.left).toBeGreaterThanOrEqual(60);
+  expect(mobileNavigation.width).toBeLessThanOrEqual(301);
+  expect(mobileNavigation.left).toBeGreaterThanOrEqual(89);
   expect(mobileNavigation.top).toBeGreaterThanOrEqual(63);
+  expect(mobileNavigation.background).toBe('rgb(28, 26, 30)');
   expect(mobileNavigation.bodyOverflow).toBe('hidden');
   const writeButtonColors = await page.getByRole('link', { name: '写文章' }).evaluate((element) => ({
     background: getComputedStyle(element).backgroundColor,
