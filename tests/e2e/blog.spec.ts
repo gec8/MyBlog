@@ -181,6 +181,16 @@ test('手机深色模式覆盖前台和全部后台栏目', async ({ page }) => 
     color: getComputedStyle(element).color,
   }));
   await page.getByRole('button', { name: '打开菜单' }).click();
+  await expect(page.getByText('站点导航', { exact: true })).toBeVisible();
+  await expect(page.getByText('外观', { exact: true })).toBeVisible();
+  const mobileNavigation = await page.locator('.site-header nav').evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { width: rect.width, left: rect.left, top: rect.top, bodyOverflow: document.body.style.overflow };
+  });
+  expect(mobileNavigation.width).toBeLessThanOrEqual(321);
+  expect(mobileNavigation.left).toBeGreaterThanOrEqual(60);
+  expect(mobileNavigation.top).toBeGreaterThanOrEqual(63);
+  expect(mobileNavigation.bodyOverflow).toBe('hidden');
   const writeButtonColors = await page.getByRole('link', { name: '写文章' }).evaluate((element) => ({
     background: getComputedStyle(element).backgroundColor,
     color: getComputedStyle(element).color,

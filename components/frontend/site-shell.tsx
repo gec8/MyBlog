@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Menu, Monitor, Moon, PenLine, Sun, X } from 'lucide-react';
+import { BookOpen, Info, Menu, Monitor, Moon, PenLine, Sun, X } from 'lucide-react';
 import type { SiteSettings } from '@/types/blog';
 import { basePath, homeHref } from '@/lib/site-paths';
 import { BrandMark, BrandWordmark } from '@/components/brand-mark';
@@ -46,9 +46,10 @@ export function SiteHeader({ compact = false, name = '猫笺 NekoNote' }: { comp
     <div className="site-width header-inner">
       <a className="brand" href={homeHref()} aria-label={`${name}，返回首页`}><span className="cat-logo"><BrandMark /></span><BrandWordmark name={name} /></a>
       <nav className={menuOpen ? 'nav-open' : ''} aria-label="主导航">
-        <a className={compact ? 'active' : ''} href={homeHref('latest')} onClick={() => setMenuOpen(false)}>文章</a>
-        <a href={homeHref('about')} onClick={() => setMenuOpen(false)}>关于</a>
-        <ThemePicker />
+        <p className="mobile-nav-title">站点导航</p>
+        <a className={compact ? 'active' : ''} href={homeHref('latest')} onClick={() => setMenuOpen(false)}><BookOpen />文章</a>
+        <a href={homeHref('about')} onClick={() => setMenuOpen(false)}><Info />关于</a>
+        <div className="nav-theme"><span>外观</span><ThemePicker /></div>
         <a className="write-link" href={`${basePath || ''}/admin`} onClick={() => setMenuOpen(false)}><PenLine size={14} />写文章</a>
       </nav>
       {menuOpen && <button className="nav-backdrop" aria-label="关闭菜单" onClick={() => setMenuOpen(false)} />}
