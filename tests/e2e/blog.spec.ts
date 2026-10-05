@@ -221,6 +221,18 @@ test('管理员可进入写作、媒体上传、删除恢复与健康状态', as
   await expect(page.getByRole('heading', { name: /编辑：浏览器测试文章/ })).toBeVisible();
   await page.getByRole('button', { name: /新文章/ }).first().click();
   await expect(page.getByRole('heading', { name: '写一篇新文章' })).toBeVisible();
+  const publishBar = page.locator('.publish-row');
+  for (const name of ['保存草稿', '预览', '发布文章']) {
+    const button = publishBar.getByRole('button', { name, exact: true });
+    await expect(button).toBeVisible();
+    expect(await button.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const parse = (value: string) => value.match(/\d+/g)?.slice(0, 3).map(Number) ?? [0, 0, 0];
+      const [br, bg, bb] = parse(style.backgroundColor);
+      const [cr, cg, cb] = parse(style.color);
+      return Math.abs(br - cr) + Math.abs(bg - cg) + Math.abs(bb - cb);
+    }), `${name}文字与背景对比不足`).toBeGreaterThan(120);
+  }
   await page.getByRole('button', { name: '媒体', exact: true }).click();
   await expect(page.getByRole('heading', { name: '媒体资源', level: 1 })).toBeVisible();
   await page.locator('input[type="file"][multiple]').setInputFiles({ name: 'test.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2h8sAAAAASUVORK5CYII=', 'base64') });

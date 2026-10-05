@@ -4807,6 +4807,7 @@ function AdminWorkspace({
                         保存草稿
                       </Button>
                       <Button
+                        className="publish-save"
                         type="button"
                         variant="outline"
                         onClick={() => {
@@ -5153,6 +5154,7 @@ function AdminWorkspace({
                         placeholder="粘贴 Pexels API Key"
                       />
                       <Button
+                        className="publish-preview"
                         type="button"
                         variant="outline"
                         disabled={!pexelsKey || pexelsLoading}
@@ -5209,8 +5211,9 @@ function AdminWorkspace({
                       </Button>
                     </div>
                   </details>
-                  <Button
-                    type="submit"
+                      <Button
+                        className="publish-submit"
+                        type="submit"
                     size="lg"
                     disabled={state === 'publishing' || state === 'deploying'}
                   >
