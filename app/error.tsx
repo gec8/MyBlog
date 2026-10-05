@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 
 export default function ErrorPage({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
-  useEffect(() => { console.error("NekoPress page error", error); }, [error]);
+  useEffect(() => { console.error("NekoNote page error", error); }, [error]);
   return <main className="site-error" role="alert">
     <span>!</span>
     <p>PAGE ERROR</p>

@@ -2,6 +2,7 @@
 
 import { Component, ErrorInfo, ReactNode } from "react";
 import { reportClientError } from "@/services/monitoring/client";
+import { BrandMark } from "@/components/brand-mark";
 
 export class SiteErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -9,14 +10,14 @@ export class SiteErrorBoundary extends Component<{ children: ReactNode }, { fail
   static getDerivedStateFromError() { return { failed: true }; }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("NekoPress render error", error, info.componentStack);
+    console.error("NekoNote render error", error, info.componentStack);
     reportClientError({ category: "render", severity: "fatal", message: error.message, detail: `${error.stack ?? ""}\n${info.componentStack ?? ""}` });
   }
 
   render() {
     if (!this.state.failed) return this.props.children;
     return <main className="site-error" role="alert">
-      <span>猫</span>
+      <span><BrandMark /></span>
       <p>PAGE RECOVERY</p>
       <h1>页面没有正常打开</h1>
       <small>可能是浏览器缓存或暂时的网络波动，文章内容不会丢失。</small>

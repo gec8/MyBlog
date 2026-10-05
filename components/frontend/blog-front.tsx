@@ -4,6 +4,7 @@
 import { ArrowRight, ArrowUpRight, Clock3, Search, Sparkles, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { SiteFooter, SiteHeader } from '@/components/frontend/site-shell';
+import { BrandMark } from '@/components/brand-mark';
 import { articleHref, assetHref } from '@/lib/site-paths';
 import type { Post, SiteSettings } from '@/types/blog';
 import { installGlobalErrorMonitoring } from '@/services/monitoring/client';
@@ -76,7 +77,7 @@ export function BlogFront({ posts, settings }: { posts: Post[]; settings: SiteSe
           {visibleCount < filtered.length && <div className="load-more"><button onClick={() => setVisibleCount((count) => count + (settings.postsPerPage || 9))}>加载更多 <ArrowRight /></button></div>}</> :
           <div className="front-empty"><Search /><h3>没有找到相关文章</h3><p>换一个关键词或分类试试看。</p><button onClick={() => { setQuery(''); setCategory('全部'); }}>查看全部文章</button></div>}
       </section>
-      <section id="about" className="about-panel"><span className="cat-mark">猫</span><div><p>ABOUT THIS BLOG</p><h2>{settings.footer}</h2><span>{settings.description}</span></div></section>
+      <section id="about" className="about-panel"><span className="cat-mark"><BrandMark /></span><div><p>ABOUT THIS BLOG</p><h2>{settings.footer}</h2><span>{settings.description}</span></div></section>
     </main>
     <SiteFooter settings={settings} />
   </>;

@@ -6,7 +6,7 @@ const headers = {
   Authorization: `Bearer ${token}`,
   'Content-Type': 'application/json',
   'X-GitHub-Api-Version': '2022-11-28',
-  'User-Agent': 'NekoPress-Migration',
+  'User-Agent': 'NekoNote-Migration',
 };
 const indexResponse = await fetch(`${base}data/posts.json?ref=main`, { headers });
 if (!indexResponse.ok) throw new Error(`Cannot read posts index: ${indexResponse.status}`);

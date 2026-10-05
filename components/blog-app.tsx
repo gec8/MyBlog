@@ -70,6 +70,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { SiteHealth } from '@/components/admin/site-health';
 import { ScopeBadge } from '@/components/admin/design-system';
 import { SiteFooter, SiteHeader } from '@/components/frontend/site-shell';
+import { BrandMark, BrandWordmark } from '@/components/brand-mark';
 import { articleHref, assetHref, homeHref } from '@/lib/site-paths';
 import { authClient } from '@/services/auth/client';
 import { createContentClient } from '@/services/content/client';
@@ -190,7 +191,7 @@ export function BlogApp({
 
 function Header({
   compact = false,
-  name = 'NekoPress',
+  name = '猫笺 NekoNote',
 }: {
   compact?: boolean;
   name?: string;
@@ -344,7 +345,7 @@ function Home({ posts, settings }: { posts: Post[]; settings: SiteSettings }) {
           )}
         </section>
         <section id="about" className="about-panel">
-          <span className="cat-mark">猫</span>
+          <span className="cat-mark"><BrandMark /></span>
           <div>
             <p>ABOUT THIS BLOG</p>
             <h2>{settings.footer}</h2>
@@ -667,7 +668,7 @@ function Article({
             )}
           </nav>
           <aside className="article-end">
-            <span>猫</span>
+            <span><BrandMark /></span>
             <p>
               谢谢读到这里。
               <br />
@@ -1227,9 +1228,9 @@ function Admin(props: {
       <div className="admin-login">
         <section>
           <div className="login-brand">
-            <span>猫</span>
+            <span><BrandMark /></span>
             <div>
-              <small>NEKOPRESS ADMIN</small>
+              <small>NEKONOTE ADMIN</small>
               <h1>欢迎回来</h1>
               <p>登录后管理文章、媒体与网站用户。</p>
             </div>
@@ -3060,7 +3061,7 @@ function AdminWorkspace({
       setMessage('设置已导入，请检查后点击保存。');
     } catch {
       setState('error');
-      setMessage('设置文件格式无效，请选择 NekoPress 导出的 JSON 文件。');
+      setMessage('设置文件格式无效，请选择猫笺 NekoNote 导出的 JSON 文件。');
     } finally {
       event.target.value = '';
     }
@@ -3069,8 +3070,8 @@ function AdminWorkspace({
   return (
     <div className="admin-shell">
       <header className="admin-top">
-        <button className="brand" onClick={() => go()}>
-          Neko<span>Press</span>
+        <button className="brand" onClick={() => go()} aria-label="猫笺 NekoNote，返回博客首页">
+          <span className="cat-logo"><BrandMark /></span><BrandWordmark />
         </button>
         <div>
           <span className="connected-chip">
@@ -3214,7 +3215,7 @@ function AdminWorkspace({
         <main className={`admin-workspace ${focusMode ? 'focus-mode' : ''}`}>
           <aside className="admin-sidebar">
             <div className="workspace-id">
-              <span>{siteSettings.name.slice(0, 1)}</span>
+              <span><BrandMark /></span>
               <div>
                 <b>{siteSettings.name}</b>
                 <small>

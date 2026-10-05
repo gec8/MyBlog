@@ -159,6 +159,11 @@ test("前台性能、真实链接和无障碍模式完整", () => {
   assert.match(css, /\.markdown-editor \.content-editor/);
   assert.match(css, /\.audio-player\{/);
   assert.match(css, /Every inverse control/);
+  assert.match(css, /猫笺 NekoNote brand system/);
+  assert.match(readFileSync("components/brand-mark.tsx", "utf8"), /BrandWordmark/);
+  assert.match(readFileSync("data/settings.json", "utf8"), /猫笺 NekoNote/);
+  assert.match(readFileSync("app/layout.tsx", "utf8"), /favicon\.svg/);
+  assert.match(readFileSync("app/layout.tsx", "utf8"), /og-nekonote\.png/);
   assert.match(css, /prefers-reduced-motion: reduce/);
   assert.match(css, /forced-colors: active/);
   assert.match(css, /skip-link/);

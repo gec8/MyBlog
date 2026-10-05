@@ -110,6 +110,8 @@ test('手机深色模式覆盖前台和全部后台栏目', async ({ page }) => 
   await page.goto('/');
   await page.locator('html[data-app-ready="true"]').waitFor();
   expect(await largeLightSurfaces(page)).toEqual([]);
+  await expect(page.getByRole('link', { name: /猫笺 NekoNote，返回首页/ })).toBeVisible();
+  await expect(page.locator('.cat-logo .brand-mark')).toBeVisible();
   const activeCategoryColors = await page.locator('.category-tabs button.active').evaluate((element) => ({
     background: getComputedStyle(element).backgroundColor,
     color: getComputedStyle(element).color,
@@ -124,7 +126,7 @@ test('手机深色模式覆盖前台和全部后台栏目', async ({ page }) => 
     color: getComputedStyle(element).color,
   }));
   expect(activeCategoryColors).toEqual({ background: 'rgb(245, 241, 243)', color: 'rgb(23, 23, 28)' });
-  expect(logoColors).toEqual({ background: 'rgb(245, 241, 243)', color: 'rgb(23, 23, 28)' });
+  expect(logoColors).toEqual({ background: 'rgba(0, 0, 0, 0)', color: 'rgb(245, 241, 243)' });
   expect(writeButtonColors).toEqual({ background: 'rgb(245, 241, 243)', color: 'rgb(23, 23, 28)' });
 
   await login(page, 'owner');

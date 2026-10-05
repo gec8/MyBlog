@@ -261,3 +261,18 @@ nav{display:flex;align-items:center;gap:8px}nav button{display:inline-flex;align
   .site-header nav a.write-link,nav .write-link,.category-tabs button.active,.cat-logo,.article-head>div>b,.article-preview>header>div>b,.workspace-id>span,.workspace-heading button,.workspace-actions button:last-child:not(.focus-toggle),.settings-submit button,.list-empty button,.preview-size button.active,.font-controls button.active,.publish-check footer button:last-child,.publish-row button,.publish-row>div button:last-child,.review-actions button:last-child,.site-error>span,.site-error button:first-child,.audio-player .audio-play,.connect-button{background:#f5f1f3;color:#17171c!important}
   .site-header nav a.write-link:hover,nav .write-link:hover,.category-tabs button.active:hover{background:#ff9aaa;color:#17171c!important}
 }
+
+/* 猫笺 NekoNote brand system */
+.brand{display:flex;align-items:center;gap:9px;font-family:Georgia,"Noto Serif SC",serif}
+.brand-mark{display:block;width:100%;height:100%}
+.cat-logo{display:grid;width:32px;height:32px;flex:0 0 32px;place-items:center;border-radius:0;background:transparent!important;color:var(--ink)!important}
+.brand-wordmark{display:flex!important;align-items:baseline;gap:7px;color:inherit!important;line-height:1}
+.brand-wordmark strong{font-weight:850}
+.brand-wordmark small{color:var(--muted)!important;font-family:var(--font-geist-sans);font-size:.56em;font-weight:800;letter-spacing:.02em}
+.brand-custom-name{color:inherit!important}
+.cat-mark .brand-mark,.article-end>span .brand-mark{width:72%;height:72%}
+.login-brand>span{border-radius:0;background:transparent!important;color:var(--ink)!important;box-shadow:none}
+.workspace-id>span{background:transparent!important;color:var(--ink)!important;box-shadow:none}
+.workspace-id>span .brand-mark{width:38px;height:38px}
+.site-error>span .brand-mark{width:40px;height:40px}
+@media (max-width:480px){.brand-wordmark{gap:5px}.brand-wordmark small{font-size:.52em}}

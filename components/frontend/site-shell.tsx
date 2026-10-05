@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import { Menu, PenLine, X } from 'lucide-react';
 import type { SiteSettings } from '@/types/blog';
 import { basePath, homeHref } from '@/lib/site-paths';
+import { BrandMark, BrandWordmark } from '@/components/brand-mark';
 
-export function SiteHeader({ compact = false, name = 'NekoPress' }: { compact?: boolean; name?: string }) {
+export function SiteHeader({ compact = false, name = '猫笺 NekoNote' }: { compact?: boolean; name?: string }) {
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => {
     if (!menuOpen) return;
@@ -20,7 +21,7 @@ export function SiteHeader({ compact = false, name = 'NekoPress' }: { compact?: 
   }, [menuOpen]);
   return <header className="site-header">
     <div className="site-width header-inner">
-      <a className="brand" href={homeHref()} aria-label="返回首页"><span className="cat-logo">猫</span>{name}</a>
+      <a className="brand" href={homeHref()} aria-label={`${name}，返回首页`}><span className="cat-logo"><BrandMark /></span><BrandWordmark name={name} /></a>
       <nav className={menuOpen ? 'nav-open' : ''} aria-label="主导航">
         <a className={compact ? 'active' : ''} href={homeHref('latest')} onClick={() => setMenuOpen(false)}>文章</a>
         <a href={homeHref('about')} onClick={() => setMenuOpen(false)}>关于</a>
@@ -34,7 +35,7 @@ export function SiteHeader({ compact = false, name = 'NekoPress' }: { compact?: 
 
 export function SiteFooter({ settings }: { settings?: SiteSettings }) {
   return <footer className="footer site-width">
-    <span>{settings?.copyright ?? `© 2026 ${settings?.name ?? 'NekoPress'}`}</span>
+    <span>{settings?.copyright ?? `© 2026 ${settings?.name ?? '猫笺 NekoNote'}`}</span>
     {settings?.github ? <a href={settings.github} target="_blank" rel="noreferrer">GitHub</a> : <span>Published with GitHub Pages</span>}
   </footer>;
 }

@@ -1,5 +1,5 @@
 {
-  "name": "NekoPress",
+  "name": "猫笺 NekoNote",
   "tagline": "写下好奇，也收藏日常。",
   "description": "一个关于开发、生活与微小灵感的个人博客。",
   "author": "Neko",
@@ -7,5 +7,5 @@
   "postsPerPage": 9,
   "github": "https://github.com/gec8",
   "footer": "保持好奇，也保持一点松弛。",
-  "copyright": "© 2026 NekoPress"
+  "copyright": "© 2026 猫笺 NekoNote"
 }
