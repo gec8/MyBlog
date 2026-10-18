@@ -29,6 +29,7 @@ import {
   FileText,
   GitBranch,
   Heading2,
+  Highlighter,
   ImagePlus,
   KeyRound,
   Link2,
@@ -42,6 +43,7 @@ import {
   Minimize2,
   MoreHorizontal,
   Music2,
+  MessageSquareText,
   Pause,
   Pencil,
   PenLine,
@@ -59,6 +61,7 @@ import {
   Strikethrough,
   Table2,
   Trash2,
+  Underline,
   Undo2,
   Upload,
   UserRound,
@@ -435,6 +438,80 @@ function PostCard({
   );
 }
 
+type AnnotationColor = 'yellow' | 'pink' | 'blue' | 'green';
+type AnnotationKind = 'highlight' | 'underline' | 'note';
+type TextSelection = { start: number; end: number; quote: string };
+type ReaderAnnotation = TextSelection & {
+  id: string;
+  kind: AnnotationKind;
+  color: AnnotationColor;
+  note?: string;
+  createdAt: number;
+};
+
+const ANNOTATION_COLORS: AnnotationColor[] = ['yellow', 'pink', 'blue', 'green'];
+
+function annotationColorName(color: AnnotationColor) {
+  return { yellow: '黄色', pink: '粉色', blue: '蓝色', green: '绿色' }[color];
+}
+
+function annotationStorageKey(slug: string) {
+  return `nekonote-reader-annotations:${slug}`;
+}
+
+function isReaderAnnotation(value: unknown): value is ReaderAnnotation {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<ReaderAnnotation>;
+  return typeof item.id === 'string' && typeof item.start === 'number' && typeof item.end === 'number' && typeof item.quote === 'string' && ['highlight', 'underline', 'note'].includes(item.kind || '') && ANNOTATION_COLORS.includes(item.color as AnnotationColor);
+}
+
+function createReaderAnnotation(target: TextSelection, kind: AnnotationKind, color: AnnotationColor, note: string): ReaderAnnotation {
+  const createdAt = Date.now();
+  return {
+    id: `${createdAt.toString(36)}-${crypto.randomUUID().slice(0, 5)}`,
+    ...target,
+    kind,
+    color,
+    note: note.trim() || undefined,
+    createdAt,
+  };
+}
+
+function renderReaderAnnotations(root: HTMLElement, annotations: ReaderAnnotation[]) {
+  const text = root.textContent || '';
+  annotations
+    .filter((item) => item.start >= 0 && item.end > item.start && text.slice(item.start, item.end) === item.quote)
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .forEach((annotation) => {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const segments: Array<{ node: Text; start: number; end: number }> = [];
+      let offset = 0;
+      let node = walker.nextNode() as Text | null;
+      while (node) {
+        const nextOffset = offset + node.data.length;
+        if (annotation.start < nextOffset && annotation.end > offset) {
+          segments.push({ node, start: Math.max(0, annotation.start - offset), end: Math.min(node.data.length, annotation.end - offset) });
+        }
+        offset = nextOffset;
+        node = walker.nextNode() as Text | null;
+      }
+      segments.reverse().forEach((segment) => {
+        if (segment.end <= segment.start || !segment.node.parentNode) return;
+        const selected = segment.node.splitText(segment.start);
+        selected.splitText(segment.end - segment.start);
+        const mark = document.createElement('span');
+        mark.className = `reader-mark reader-mark-${annotation.kind} reader-color-${annotation.color}`;
+        mark.dataset.readerAnnotation = annotation.id;
+        if (annotation.note) {
+          mark.dataset.note = annotation.note;
+          mark.title = annotation.note;
+        }
+        selected.replaceWith(mark);
+        mark.appendChild(selected);
+      });
+    });
+}
+
 function Article({
   post,
   posts,
@@ -451,6 +528,15 @@ function Article({
     'normal',
   );
   const [lightbox, setLightbox] = useState<number | null>(null);
+  const [annotations, setAnnotations] = useState<ReaderAnnotation[]>([]);
+  const [annotationColor, setAnnotationColor] = useState<AnnotationColor>('yellow');
+  const [annotationsReady, setAnnotationsReady] = useState(false);
+  const [selectedText, setSelectedText] = useState<TextSelection | null>(null);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteDraft, setNoteDraft] = useState('');
+  const articleBodyRef = useRef<HTMLElement>(null);
+  const selectedTextRef = useRef<TextSelection | null>(null);
+  const annotationColorRef = useRef<AnnotationColor>('yellow');
   const bodyImages = useMemo(
     () =>
       post.content
@@ -477,6 +563,25 @@ function Article({
   const related = posts
     .filter((item) => item.id !== post.id && item.category === post.category)
     .slice(0, 2);
+  function captureTextSelection() {
+    const root = articleBodyRef.current;
+    const selection = window.getSelection();
+    if (!root || !selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+    const range = selection.getRangeAt(0);
+    if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+    const before = document.createRange();
+    before.selectNodeContents(root);
+    before.setEnd(range.startContainer, range.startOffset);
+    const quote = range.toString();
+    if (!quote.trim()) return null;
+    const next = { start: before.toString().length, end: before.toString().length + quote.length, quote };
+    const current = selectedTextRef.current;
+    if (current && current.start === next.start && current.end === next.end && current.quote === next.quote) return current;
+    selectedTextRef.current = next;
+    setSelectedText(next);
+    setNoteOpen(false);
+    return next;
+  }
   useEffect(() => {
     const update = () => {
       const height = document.documentElement.scrollHeight - window.innerHeight;
@@ -526,6 +631,56 @@ function Article({
       window.removeEventListener('keydown', keys);
     };
   }, [lightbox, bodyImages.length]);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(annotationStorageKey(post.slug)) || '[]');
+      setAnnotations(Array.isArray(saved) ? saved.filter(isReaderAnnotation) : []);
+    } catch {
+      setAnnotations([]);
+    }
+    setAnnotationsReady(true);
+    setSelectedText(null);
+    selectedTextRef.current = null;
+    setNoteOpen(false);
+    setNoteDraft('');
+  }, [post.slug]);
+  useEffect(() => {
+    const root = articleBodyRef.current;
+    if (root) renderReaderAnnotations(root, annotations);
+  }, [annotations, post.slug]);
+  useEffect(() => {
+    document.addEventListener('selectionchange', captureTextSelection);
+    document.addEventListener('mouseup', captureTextSelection, true);
+    document.addEventListener('touchend', captureTextSelection, true);
+    document.addEventListener('keyup', captureTextSelection, true);
+    return () => {
+      document.removeEventListener('selectionchange', captureTextSelection);
+      document.removeEventListener('mouseup', captureTextSelection, true);
+      document.removeEventListener('touchend', captureTextSelection, true);
+      document.removeEventListener('keyup', captureTextSelection, true);
+    };
+  }, [post.slug]);
+  function saveAnnotations(next: ReaderAnnotation[]) {
+    setAnnotations(next);
+    localStorage.setItem(annotationStorageKey(post.slug), JSON.stringify(next));
+  }
+  function addAnnotation(kind: AnnotationKind, note = '') {
+    const target = selectedTextRef.current || captureTextSelection();
+    if (!target) return;
+    const next = [...annotations, createReaderAnnotation(target, kind, annotationColorRef.current, note)];
+    saveAnnotations(next);
+    window.getSelection()?.removeAllRanges();
+    setSelectedText(null);
+    selectedTextRef.current = null;
+    setNoteOpen(false);
+    setNoteDraft('');
+  }
+  function removeAnnotation(id: string) {
+    saveAnnotations(annotations.filter((item) => item.id !== id));
+  }
+  function locateAnnotation(id: string) {
+    articleBodyRef.current?.querySelector<HTMLElement>(`[data-reader-annotation="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
   async function copyLink() {
     await navigator.clipboard.writeText(window.location.href);
     setCopied(true);
@@ -599,18 +754,39 @@ function Article({
               </a>
             )}
           </div>
-          <article className={`article-body reading-size-${fontSize}`}>
-            <Markdown
-              content={post.content}
-              onImageOpen={(src) =>
-                setLightbox(
-                  Math.max(
-                    0,
-                    bodyImages.findIndex((item) => assetHref(item.src) === src),
-                  ),
-                )
-              }
-            />
+          <section className={`reader-annotation-bar ${selectedText ? 'has-selection' : ''}`} aria-label="阅读批注工具">
+            <header>
+              <span><Highlighter />阅读批注</span>
+              <small>{selectedText ? `已选择：${selectedText.quote.trim().slice(0, 30)}${selectedText.quote.trim().length > 30 ? '…' : ''}` : '先在正文中选中文字'}</small>
+            </header>
+            <div className="annotation-actions">
+              <fieldset className="annotation-colors" aria-label="批注颜色">
+                {ANNOTATION_COLORS.map((color) => <button type="button" disabled={!annotationsReady} className={`${color} ${annotationColor === color ? 'active' : ''}`} aria-label={`批注颜色：${annotationColorName(color)}`} aria-pressed={annotationColor === color} onPointerDown={() => { annotationColorRef.current = color; }} onClick={() => { annotationColorRef.current = color; setAnnotationColor(color); }} key={color} />)}
+              </fieldset>
+              <button type="button" disabled={!annotationsReady} onMouseDown={(event) => event.preventDefault()} onClick={() => addAnnotation('highlight')}><Highlighter />高亮</button>
+              <button type="button" disabled={!annotationsReady} onMouseDown={(event) => event.preventDefault()} onClick={() => addAnnotation('underline')}><Underline />划线</button>
+              <button type="button" disabled={!annotationsReady} onMouseDown={(event) => event.preventDefault()} onClick={() => { if (selectedTextRef.current || captureTextSelection()) setNoteOpen(true); }}><MessageSquareText />写批注</button>
+            </div>
+            {noteOpen && selectedText && <form className="annotation-note-form" onSubmit={(event) => { event.preventDefault(); if (noteDraft.trim()) addAnnotation('note', noteDraft); }}>
+              <input value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="写下对这段文字的想法" aria-label="批注内容" />
+              <button type="submit" disabled={!noteDraft.trim()}>保存批注</button>
+              <button type="button" onClick={() => { setNoteOpen(false); setNoteDraft(''); }}>取消</button>
+            </form>}
+          </section>
+          <article ref={articleBodyRef} className={`article-body reading-size-${fontSize}`}>
+            <div className="article-annotated-content" key={annotations.map((item) => item.id).join('|') || 'plain'}>
+              <Markdown
+                content={post.content}
+                onImageOpen={(src) =>
+                  setLightbox(
+                    Math.max(
+                      0,
+                      bodyImages.findIndex((item) => assetHref(item.src) === src),
+                    ),
+                  )
+                }
+              />
+            </div>
           </article>
           <div className="article-tools">
             <div className="font-controls" aria-label="正文字号">
@@ -645,6 +821,19 @@ function Article({
               返回顶部
             </button>
           </div>
+          {annotations.length > 0 && <details className="reader-annotation-list">
+            <summary><MessageSquareText />我的批注 <b>{annotations.length}</b></summary>
+            <div>
+              {annotations.map((item) => <article className={`reader-note reader-color-${item.color}`} key={item.id}>
+                <button type="button" onClick={() => locateAnnotation(item.id)}>
+                  <span>{item.kind === 'highlight' ? '高亮' : item.kind === 'underline' ? '划线' : '批注'} · {annotationColorName(item.color)}</span>
+                  <q>{item.quote.trim()}</q>
+                  {item.note && <p>{item.note}</p>}
+                </button>
+                <button type="button" aria-label={`删除批注：${item.quote.trim().slice(0, 20)}`} onClick={() => removeAnnotation(item.id)}><Trash2 /></button>
+              </article>)}
+            </div>
+          </details>}
           <nav className="article-neighbors" aria-label="相邻文章">
             {previous ? (
               <button onClick={() => go(`post/${previous.slug}`)}>

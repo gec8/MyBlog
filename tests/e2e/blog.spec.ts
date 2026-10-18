@@ -98,6 +98,45 @@ test('首页和文章在桌面及手机均可打开且无横向溢出', async ({
   await expect(page.locator('.article-body')).toBeVisible();
 });
 
+test('读者可以为已发布文章添加多色高亮、划线和本地批注', async ({ page }) => {
+  await page.goto('/post/welcome-to-nekopress');
+  await expect(page.getByText('阅读批注', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '高亮', exact: true })).toBeEnabled();
+  const selectParagraph = async (index: number) => {
+    const paragraph = page.locator('.article-body p').nth(index);
+    await paragraph.scrollIntoViewIfNeeded();
+    const box = await paragraph.boundingBox();
+    if (!box) throw new Error('无法定位文章段落');
+    await page.mouse.move(box.x + 8, box.y + Math.min(18, box.height / 2));
+    await page.mouse.down();
+    await page.mouse.move(box.x + Math.min(180, box.width - 8), box.y + Math.min(18, box.height / 2), { steps: 8 });
+    await page.mouse.up();
+  };
+  await selectParagraph(0);
+  const blue = page.getByRole('button', { name: '批注颜色：蓝色' });
+  await blue.click();
+  await expect(blue).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: '高亮', exact: true }).click();
+  await expect(page.locator('.reader-mark-highlight.reader-color-blue')).toHaveCount(1);
+  await expect(page.getByText('我的批注')).toBeVisible();
+  expect(await page.evaluate(() => Object.keys(localStorage).some((key) => key.startsWith('nekonote-reader-annotations:')))).toBe(true);
+  await page.reload();
+  await expect(page.locator('.reader-mark-highlight.reader-color-blue')).toHaveCount(1);
+  await selectParagraph(1);
+  await page.getByRole('button', { name: '批注颜色：绿色' }).click();
+  await page.getByRole('button', { name: '划线', exact: true }).click();
+  await expect(page.locator('.reader-mark-underline.reader-color-green')).toHaveCount(1);
+  await selectParagraph(2);
+  await page.getByRole('button', { name: '批注颜色：粉色' }).click();
+  await page.getByRole('button', { name: '写批注', exact: true }).click();
+  await page.getByRole('textbox', { name: '批注内容' }).fill('这里值得以后再读一次');
+  await page.getByRole('button', { name: '保存批注' }).click();
+  await expect(page.locator('.reader-mark-note.reader-color-pink')).toHaveCount(1);
+  await expect(page.locator('.reader-annotation-list')).toContainText('这里值得以后再读一次');
+  await page.reload();
+  await expect(page.locator('[data-reader-annotation]')).toHaveCount(3);
+});
+
 test('手机首页首屏紧凑且手动主题会跨刷新保持', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: 'dark' });
