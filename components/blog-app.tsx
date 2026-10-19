@@ -1993,6 +1993,7 @@ function AdminWorkspace({
   const [pexelsMediaKind, setPexelsMediaKind] = useState<'photo' | 'video'>('photo');
   const [pexelsTarget, setPexelsTarget] = useState<'cover' | 'body'>('cover');
   const [pexelsLoading, setPexelsLoading] = useState(false);
+  const [pexelsError, setPexelsError] = useState('');
   const [pexelsPage, setPexelsPage] = useState(1);
   const [coverPickerTab, setCoverPickerTab] = useState<'media' | 'pexels'>(
     'pexels',
@@ -3443,33 +3444,29 @@ function AdminWorkspace({
       return;
     }
     setPexelsLoading(true);
+    setPexelsError('');
     setShowPexels(true);
     try {
+      await contentRequest('/api/preferences', {
+        method: 'PUT',
+        body: JSON.stringify({
+          preferences: { showOutline, previewSize, pexelsKey, pexelsKeyUpdatedAt },
+        }),
+      });
       const kind = kindOverride ?? pexelsMediaKind;
       if (kindOverride) setPexelsMediaKind(kindOverride);
       const targetPage = random ? Math.floor(Math.random() * 30) + 1 : page;
       const searchTerm =
         (queryOverride ?? pexelsQuery).trim() || suggestedCoverQuery;
-      const endpoint = kind === 'video'
-        ? searchTerm
-          ? `https://api.pexels.com/videos/search?query=${encodeURIComponent(searchTerm)}&orientation=landscape&per_page=12&page=${targetPage}`
-          : `https://api.pexels.com/videos/popular?per_page=12&page=${targetPage}`
-        : searchTerm
-          ? `https://api.pexels.com/v1/search?query=${encodeURIComponent(searchTerm)}&orientation=landscape&size=large&per_page=12&page=${targetPage}`
-          : `https://api.pexels.com/v1/curated?per_page=12&page=${targetPage}`;
-      const response = await fetch(endpoint, {
-        headers: { Authorization: pexelsKey.trim() },
-        cache: 'no-store',
+      const params = new URLSearchParams({
+        kind,
+        query: searchTerm,
+        page: String(targetPage),
       });
-      if (!response.ok)
-        throw new Error(
-          response.status === 401
-            ? 'Pexels API Key 无效。'
-            : response.status === 429
-              ? 'Pexels 请求次数已达到限制，请稍后再试。'
-              : `Pexels ${kind === 'video' ? '视频' : '图片'}加载失败。`,
-        );
-      const result = (await response.json()) as { photos?: PexelsPhoto[]; videos?: PexelsVideo[] };
+      const result = await contentRequest<{
+        photos?: PexelsPhoto[];
+        videos?: PexelsVideo[];
+      }>(`/api/pexels/search?${params}`);
       if (kind === 'video') {
         const videos = (result.videos ?? []).filter((video) =>
           video.video_files?.some((file) => file.file_type === 'video/mp4' && file.link),
@@ -3496,13 +3493,11 @@ function AdminWorkspace({
       if (!photos.length)
         setMessage('没有找到合适的横向图片，请换一个关键词。');
     } catch (error) {
-      setMessage(
-        error instanceof TypeError
-          ? '浏览器无法连接 Pexels，请检查网络或隐私拦截设置。'
-          : error instanceof Error
-            ? error.message
-            : '网络媒体加载失败。',
-      );
+      const errorMessage = error instanceof Error
+        ? error.message
+        : '网络媒体加载失败。';
+      setPexelsError(errorMessage);
+      setMessage(errorMessage);
     } finally {
       setPexelsLoading(false);
     }
@@ -6136,6 +6131,15 @@ function AdminWorkspace({
                 />
               </div>
             )}
+            {pexelsError && !pexelsLoading && (
+              <div className="pexels-error" role="alert">
+                <b>{pexelsMediaKind === 'video' ? '视频' : '图片'}加载失败</b>
+                <span>{pexelsError}</span>
+                <button type="button" onClick={() => void searchPexels(1)}>
+                  <RefreshCw />重新加载
+                </button>
+              </div>
+            )}
             {pexelsLoading ? (
               <div className="pexels-loading">
                 <LoaderCircle className="spin" />
@@ -6181,7 +6185,7 @@ function AdminWorkspace({
                   </article>
                 ))}
               </div>
-            ) : (
+            ) : pexelsError ? null : (
               <div className="pexels-empty">
                 <ImagePlus />
                 <p>

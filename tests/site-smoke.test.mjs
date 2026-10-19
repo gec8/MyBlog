@@ -60,7 +60,8 @@ test("后台编辑和发布入口存在", () => {
   assert.match(source, /searchPexels/);
   assert.match(source, /insertPexelsPhoto/);
   assert.match(source, /insertPexelsVideo/);
-  assert.match(source, /\/videos\/search/);
+  assert.match(source, /\/api\/pexels\/search/);
+  assert.doesNotMatch(source, /fetch\(['"`]https:\/\/api\.pexels\.com/);
   assert.match(source, /@\[video:/);
   assert.match(source, /在线视频/);
   assert.match(source, /nekopress-pexels-key/);
@@ -242,6 +243,8 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(authWorker, /content_snapshots/);
   assert.match(authWorker, /user_preferences/);
   assert.match(authWorker, /GET, POST, PUT, PATCH, DELETE, OPTIONS/);
+  assert.match(authWorker, /\/api\/pexels\/search/);
+  assert.match(authWorker, /api\.pexels\.com\/v1\/videos/);
   assert.match(authWorker, /media_assets/);
   assert.match(authWorker, /contentHash/);
   assert.match(authWorker, /githubHttpError/);

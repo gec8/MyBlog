@@ -25,22 +25,7 @@ async function mockBackend(page: Page, role: 'owner' | 'author' = 'owner') {
     contentType: 'image/png',
     body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2h8sAAAAASUVORK5CYII=', 'base64'),
   }));
-  await page.route('https://api.pexels.com/**', async (route) => {
-    const url = route.request().url();
-    if (url.includes('/videos/')) return route.fulfill({ json: { videos: [{
-      id: 101, width: 1280, height: 720,
-      url: 'https://www.pexels.com/video/test-video-101/',
-      image: 'https://images.pexels.com/videos/101/free-video-101.jpg',
-      user: { name: 'Test Creator', url: 'https://www.pexels.com/@test-creator/' },
-      video_files: [{ id: 1, quality: 'hd', file_type: 'video/mp4', width: 1280, height: 720, link: 'https://videos.pexels.com/video-files/101/test-video.mp4' }],
-    }] } });
-    return route.fulfill({ json: { photos: [{
-      id: 202, width: 1280, height: 720, photographer: 'Photo Creator',
-      photographer_url: 'https://www.pexels.com/@photo-creator/',
-      url: 'https://www.pexels.com/photo/test-photo-202/', alt: '测试在线图片',
-      src: { medium: 'https://images.pexels.com/photos/202/medium.png', large: 'https://images.pexels.com/photos/202/large.png', large2x: 'https://images.pexels.com/photos/202/large2x.png' },
-    }] } });
-  });
+  await page.route('https://api.pexels.com/**', (route) => route.abort('blockedbyclient'));
   await page.route('https://api.github.com/repos/**/actions/runs**', async (route) => {
     deploymentChecks += 1;
     return route.fulfill({
@@ -73,6 +58,21 @@ async function mockBackend(page: Page, role: 'owner' | 'author' = 'owner') {
     if (path === '/api/preferences' && route.request().method() === 'PUT') {
       preferences = (route.request().postDataJSON() as { preferences?: Record<string, unknown> }).preferences ?? {};
       return route.fulfill({ json: { ok: true } });
+    }
+    if (path === '/api/pexels/search') {
+      if (url.searchParams.get('kind') === 'video') return route.fulfill({ json: { videos: [{
+        id: 101, width: 1280, height: 720,
+        url: 'https://www.pexels.com/video/test-video-101/',
+        image: 'https://images.pexels.com/videos/101/free-video-101.jpg',
+        user: { name: 'Test Creator', url: 'https://www.pexels.com/@test-creator/' },
+        video_files: [{ id: 1, quality: 'hd', file_type: 'video/mp4', width: 1280, height: 720, link: 'https://videos.pexels.com/video-files/101/test-video.mp4' }],
+      }] } });
+      return route.fulfill({ json: { photos: [{
+        id: 202, width: 1280, height: 720, photographer: 'Photo Creator',
+        photographer_url: 'https://www.pexels.com/@photo-creator/',
+        url: 'https://www.pexels.com/photo/test-photo-202/', alt: '测试在线图片',
+        src: { medium: 'https://images.pexels.com/photos/202/medium.png', large: 'https://images.pexels.com/photos/202/large.png', large2x: 'https://images.pexels.com/photos/202/large2x.png' },
+      }] } });
     }
     if (path === '/api/content/reviews') return route.fulfill({ json: { reviews: [] } });
     if (path === '/api/snapshots') return route.fulfill({ json: { snapshots: [{ id: 'snap-1', kind: 'article', target_id: 'post-1', title: '文章备份', created_at: '2026-01-01T00:00:00Z', actor_name: '站长' }] } });

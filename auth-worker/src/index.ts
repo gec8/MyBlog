@@ -108,6 +108,8 @@ export default {
         return getPreferences(env, auth.user, cors);
       if (url.pathname === '/api/preferences' && request.method === 'PUT')
         return savePreferences(request, env, auth.user, cors);
+      if (url.pathname === '/api/pexels/search' && request.method === 'GET')
+        return searchPexels(url, env, auth.user, cors);
       if (url.pathname === '/api/annotations' && request.method === 'GET')
         return getReaderAnnotations(url, env, auth.user, cors);
       if (url.pathname === '/api/annotations' && request.method === 'PUT')
@@ -758,6 +760,61 @@ async function savePreferences(request: Request, env: Env, user: UserRow, cors: 
   if (preferences.length > 20_000) throw new HttpError(413, '个人设置内容过大。');
   await env.DB.prepare('INSERT INTO user_preferences (user_id, preferences_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET preferences_json = excluded.preferences_json, updated_at = excluded.updated_at').bind(user.id, preferences, now()).run();
   return json({ ok: true }, 200, cors);
+}
+
+async function searchPexels(
+  url: URL,
+  env: Env,
+  user: UserRow,
+  cors: Record<string, string>,
+) {
+  const row = await env.DB.prepare(
+    'SELECT preferences_json FROM user_preferences WHERE user_id = ?',
+  ).bind(user.id).first<{ preferences_json: string }>();
+  let preferences: Record<string, unknown> = {};
+  try {
+    preferences = row ? JSON.parse(row.preferences_json) : {};
+  } catch {
+    throw new HttpError(500, '账号偏好数据无法读取。');
+  }
+  const apiKey = typeof preferences.pexelsKey === 'string'
+    ? preferences.pexelsKey.trim()
+    : '';
+  if (!apiKey) throw new HttpError(400, '请先保存 Pexels API Key。');
+
+  const kind = url.searchParams.get('kind') === 'video' ? 'video' : 'photo';
+  const query = (url.searchParams.get('query') || '').trim().slice(0, 100);
+  const page = Math.min(50, Math.max(1, Number(url.searchParams.get('page')) || 1));
+  const params = new URLSearchParams({
+    per_page: '12',
+    page: String(page),
+    locale: 'zh-CN',
+  });
+  if (query) {
+    params.set('query', query);
+    params.set('orientation', 'landscape');
+    if (kind === 'photo') params.set('size', 'large');
+  }
+  const endpoint = kind === 'video'
+    ? `https://api.pexels.com/v1/videos/${query ? 'search' : 'popular'}?${params}`
+    : `https://api.pexels.com/v1/${query ? 'search' : 'curated'}?${params}`;
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      headers: { Authorization: apiKey },
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new HttpError(502, '服务器暂时无法连接 Pexels，请稍后重试。');
+  }
+  if (!response.ok) {
+    if (response.status === 401)
+      throw new HttpError(422, 'Pexels API Key 无效，请重新填写。');
+    if (response.status === 429)
+      throw new HttpError(429, 'Pexels 请求次数已达到限制，请稍后再试。');
+    throw new HttpError(502, `Pexels ${kind === 'video' ? '视频' : '图片'}加载失败。`);
+  }
+  return json(await response.json(), 200, cors);
 }
 
 function validArticleSlug(value: string) {
