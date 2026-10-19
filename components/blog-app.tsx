@@ -69,6 +69,7 @@ import {
   Upload,
   UserRound,
   Users,
+  Video,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -1386,6 +1387,16 @@ function Markdown({
           src={assetHref(audio[2])}
         />,
       );
+    } else if (/^@\[video(?::[^\]]+)?\]\([^)]+\)$/.test(line)) {
+      const video = line.match(/^@\[video(?::([^\]]+))?\]\(([^)]+)\)$/)!;
+      blocks.push(
+        <figure className="article-video" key={index}>
+          <video src={assetHref(video[2])} controls playsInline preload="metadata">
+            您的浏览器不支持视频播放。
+          </video>
+          <figcaption>{video[1]?.trim() || '文章视频'}</figcaption>
+        </figure>,
+      );
     } else if (/^!\[[^\]]*\]\([^)]+\)$/.test(line)) {
       const image = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)!;
       blocks.push(
@@ -1479,6 +1490,22 @@ type PexelsPhoto = {
   url: string;
   alt: string;
   src: { medium: string; large: string; large2x: string };
+};
+type PexelsVideo = {
+  id: number;
+  width: number;
+  height: number;
+  url: string;
+  image: string;
+  user: { name: string; url: string };
+  video_files: Array<{
+    id: number;
+    quality: string;
+    file_type: string;
+    width: number | null;
+    height: number | null;
+    link: string;
+  }>;
 };
 const coverCategories = [
   { label: '自然风景', value: '自然' },
@@ -1958,6 +1985,9 @@ function AdminWorkspace({
   const [pexelsQuery, setPexelsQuery] = useState('自然');
   const [pexelsCategory, setPexelsCategory] = useState('自然');
   const [pexelsPhotos, setPexelsPhotos] = useState<PexelsPhoto[]>([]);
+  const [pexelsVideos, setPexelsVideos] = useState<PexelsVideo[]>([]);
+  const [pexelsMediaKind, setPexelsMediaKind] = useState<'photo' | 'video'>('photo');
+  const [pexelsTarget, setPexelsTarget] = useState<'cover' | 'body'>('cover');
   const [pexelsLoading, setPexelsLoading] = useState(false);
   const [pexelsPage, setPexelsPage] = useState(1);
   const [coverPickerTab, setCoverPickerTab] = useState<'media' | 'pexels'>(
@@ -2097,16 +2127,24 @@ function AdminWorkspace({
       .then(() => setServiceStatus('online'))
       .catch(() => setServiceStatus('offline'));
     void syncServerArticles(); void loadCloudDrafts();
-    void contentRequest<{ preferences: { showOutline?: boolean; previewSize?: 'desktop' | 'tablet' | 'mobile' } }>('/api/preferences')
-      .then(({ preferences }) => { if (typeof preferences.showOutline === 'boolean') setShowOutline(preferences.showOutline); if (preferences.previewSize) setPreviewSize(preferences.previewSize); })
+    void contentRequest<{ preferences: { showOutline?: boolean; previewSize?: 'desktop' | 'tablet' | 'mobile'; pexelsKey?: string } }>('/api/preferences')
+      .then(({ preferences }) => {
+        if (typeof preferences.showOutline === 'boolean') setShowOutline(preferences.showOutline);
+        if (preferences.previewSize) setPreviewSize(preferences.previewSize);
+        if (typeof preferences.pexelsKey === 'string') {
+          setPexelsKey(preferences.pexelsKey);
+          if (preferences.pexelsKey) localStorage.setItem('nekopress-pexels-key', preferences.pexelsKey);
+          else localStorage.removeItem('nekopress-pexels-key');
+        }
+      })
       .catch(() => { /* use local defaults while offline */ })
       .finally(() => setPreferencesReady(true));
   }, [authToken]);
   useEffect(() => {
     if (!preferencesReady) return;
-    const timer = window.setTimeout(() => void contentRequest('/api/preferences', { method: 'PUT', body: JSON.stringify({ preferences: { showOutline, previewSize } }) }).catch(() => { /* retry after next preference change */ }), 500);
+    const timer = window.setTimeout(() => void contentRequest('/api/preferences', { method: 'PUT', body: JSON.stringify({ preferences: { showOutline, previewSize, pexelsKey } }) }).catch(() => { /* retry after next preference change */ }), 500);
     return () => window.clearTimeout(timer);
-  }, [showOutline, previewSize, preferencesReady]);
+  }, [showOutline, previewSize, pexelsKey, preferencesReady]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -2286,7 +2324,7 @@ function AdminWorkspace({
         draft.coverImage,
         ...Array.from(
           draft.content.matchAll(
-            /(?:!\[[^\]]*\]|@\[audio(?::[^\]]+)?\])\(([^)]+)\)/g,
+            /(?:!\[[^\]]*\]|@\[(?:audio|video)(?::[^\]]+)?\])\(([^)]+)\)/g,
           ),
           (match) => match[1],
         ),
@@ -3337,10 +3375,20 @@ function AdminWorkspace({
     else localStorage.removeItem('nekopress-pexels-key');
   }
 
+  function openPexelsPicker(target: 'cover' | 'body', kind: 'photo' | 'video' = 'photo') {
+    setPexelsTarget(target);
+    setPexelsMediaKind(kind);
+    setCoverPickerTab('pexels');
+    setShowPexels(true);
+    if (pexelsKey && !(kind === 'photo' ? pexelsPhotos.length : pexelsVideos.length))
+      void searchPexels(1, false, undefined, kind);
+  }
+
   async function searchPexels(
     page = 1,
     random = false,
     queryOverride?: string,
+    kindOverride?: 'photo' | 'video',
   ) {
     if (!pexelsKey.trim()) {
       setShowPexels(true);
@@ -3351,12 +3399,18 @@ function AdminWorkspace({
     setPexelsLoading(true);
     setShowPexels(true);
     try {
+      const kind = kindOverride ?? pexelsMediaKind;
+      if (kindOverride) setPexelsMediaKind(kindOverride);
       const targetPage = random ? Math.floor(Math.random() * 30) + 1 : page;
       const searchTerm =
         (queryOverride ?? pexelsQuery).trim() || suggestedCoverQuery;
-      const endpoint = searchTerm
-        ? `https://api.pexels.com/v1/search?query=${encodeURIComponent(searchTerm)}&orientation=landscape&size=large&per_page=12&page=${targetPage}`
-        : `https://api.pexels.com/v1/curated?per_page=12&page=${targetPage}`;
+      const endpoint = kind === 'video'
+        ? searchTerm
+          ? `https://api.pexels.com/videos/search?query=${encodeURIComponent(searchTerm)}&orientation=landscape&per_page=12&page=${targetPage}`
+          : `https://api.pexels.com/videos/popular?per_page=12&page=${targetPage}`
+        : searchTerm
+          ? `https://api.pexels.com/v1/search?query=${encodeURIComponent(searchTerm)}&orientation=landscape&size=large&per_page=12&page=${targetPage}`
+          : `https://api.pexels.com/v1/curated?per_page=12&page=${targetPage}`;
       const response = await fetch(endpoint, {
         headers: { Authorization: pexelsKey.trim() },
         cache: 'no-store',
@@ -3367,9 +3421,19 @@ function AdminWorkspace({
             ? 'Pexels API Key 无效。'
             : response.status === 429
               ? 'Pexels 请求次数已达到限制，请稍后再试。'
-              : 'Pexels 图片加载失败。',
+              : `Pexels ${kind === 'video' ? '视频' : '图片'}加载失败。`,
         );
-      const result = (await response.json()) as { photos?: PexelsPhoto[] };
+      const result = (await response.json()) as { photos?: PexelsPhoto[]; videos?: PexelsVideo[] };
+      if (kind === 'video') {
+        const videos = (result.videos ?? []).filter((video) =>
+          video.video_files?.some((file) => file.file_type === 'video/mp4' && file.link),
+        );
+        setPexelsVideos(random && videos.length ? [videos[Math.floor(Math.random() * videos.length)]] : videos);
+        setPexelsPhotos([]);
+        setPexelsPage(targetPage);
+        if (!videos.length) setMessage('没有找到可用视频，请换一个关键词。');
+        return;
+      }
       const photos = (result.photos ?? []).filter(
         (photo) => photo.width > photo.height && photo.src?.large,
       );
@@ -3381,6 +3445,7 @@ function AdminWorkspace({
           ? [freshPhotos[Math.floor(Math.random() * freshPhotos.length)]]
           : photos,
       );
+      setPexelsVideos([]);
       setPexelsPage(targetPage);
       if (!photos.length)
         setMessage('没有找到合适的横向图片，请换一个关键词。');
@@ -3390,35 +3455,37 @@ function AdminWorkspace({
           ? '浏览器无法连接 Pexels，请检查网络或隐私拦截设置。'
           : error instanceof Error
             ? error.message
-            : '网络图片加载失败。',
+            : '网络媒体加载失败。',
       );
     } finally {
       setPexelsLoading(false);
     }
   }
 
-  async function usePexelsPhoto(photo: PexelsPhoto) {
+  async function insertPexelsPhoto(photo: PexelsPhoto) {
     setPexelsLoading(true);
     setState('uploading');
-    setMessage('正在下载、压缩并保存封面…');
+    setMessage(pexelsTarget === 'body' ? '正在下载、压缩并保存正文图片…' : '正在下载、压缩并保存封面…');
     try {
       const reused = repoMedia.find(
         (item) =>
           item.type === 'image' && item.name.startsWith(`pexels-${photo.id}.`),
       );
       if (reused) {
-        updateDraft({
-          coverImage: reused.url,
-          coverCredit: photo.photographer,
-          coverCreditUrl: photo.url || photo.photographer_url,
-          coverPexelsId: photo.id,
-          coverPosition: '50% 50%',
-          coverBrightness: 100,
-          coverOverlay: 12,
-        });
+        if (pexelsTarget === 'body')
+          insertMediaAtSelection(`![${markdownLabel(photo.alt || '文章图片')}](${reused.url})\n\n[图片：${markdownLabel(photo.photographer)} / Pexels](${photo.url || photo.photographer_url})`);
+        else updateDraft({
+            coverImage: reused.url,
+            coverCredit: photo.photographer,
+            coverCreditUrl: photo.url || photo.photographer_url,
+            coverPexelsId: photo.id,
+            coverPosition: '50% 50%',
+            coverBrightness: 100,
+            coverOverlay: 12,
+          });
         setShowPexels(false);
         setState('success');
-        setMessage('已从媒体库复用这张 Pexels 封面。');
+        setMessage(pexelsTarget === 'body' ? '已从媒体库复用并插入正文图片。' : '已从媒体库复用这张 Pexels 封面。');
         return;
       }
       const imageResponse = await fetch(photo.src.large2x || photo.src.large, {
@@ -3441,19 +3508,23 @@ function AdminWorkspace({
         saved,
         ...current.filter((item) => item.path !== path),
       ]);
-      updateDraft({
-        coverImage: saved.url,
-        coverCredit: photo.photographer,
-        coverCreditUrl: photo.url || photo.photographer_url,
-        coverPexelsId: photo.id,
-        coverPosition: '50% 50%',
-        coverBrightness: 100,
-        coverOverlay: 12,
-      });
+      if (pexelsTarget === 'body')
+        insertMediaAtSelection(`![${markdownLabel(photo.alt || '文章图片')}](${saved.url})\n\n[图片：${markdownLabel(photo.photographer)} / Pexels](${photo.url || photo.photographer_url})`);
+      else updateDraft({
+          coverImage: saved.url,
+          coverCredit: photo.photographer,
+          coverCreditUrl: photo.url || photo.photographer_url,
+          coverPexelsId: photo.id,
+          coverPosition: '50% 50%',
+          coverBrightness: 100,
+          coverOverlay: 12,
+        });
       setShowPexels(false);
       setState('success');
       setMessage(
-        `已保存 Pexels 摄影师 ${photo.photographer} 的图片并设为封面。`,
+        pexelsTarget === 'body'
+          ? `已保存 Pexels 摄影师 ${photo.photographer} 的图片并插入正文。`
+          : `已保存 Pexels 摄影师 ${photo.photographer} 的图片并设为封面。`,
       );
     } catch (error) {
       setState('error');
@@ -3467,6 +3538,23 @@ function AdminWorkspace({
     } finally {
       setPexelsLoading(false);
     }
+  }
+
+  function insertPexelsVideo(video: PexelsVideo) {
+    const mp4Files = video.video_files
+      .filter((file) => file.file_type === 'video/mp4' && file.link)
+      .sort((a, b) => (b.width ?? 0) - (a.width ?? 0));
+    const selected = mp4Files.find((file) => (file.width ?? 0) <= 1280) || mp4Files[0];
+    if (!selected) {
+      setState('error');
+      setMessage('这个视频没有可用的 MP4 文件，请选择其他视频。');
+      return;
+    }
+    const creator = markdownLabel(video.user?.name || 'Pexels 创作者');
+    insertMediaAtSelection(`@[video:${creator}](${selected.link})\n\n[视频：${creator} / Pexels](${video.url || video.user?.url})`);
+    setShowPexels(false);
+    setState('success');
+    setMessage('在线 Pexels 视频已插入正文，并附带来源署名。');
   }
 
   async function uploadInlineImage(event: DragEvent<HTMLTextAreaElement>) {
@@ -4893,6 +4981,8 @@ function AdminWorkspace({
                         <button
                           type="button"
                           onClick={() => {
+                            setPexelsTarget('cover');
+                            setPexelsMediaKind('photo');
                             setCoverPickerTab('media');
                             setShowPexels(true);
                             void loadRepoMedia();
@@ -4903,12 +4993,7 @@ function AdminWorkspace({
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            setCoverPickerTab('pexels');
-                            setShowPexels(true);
-                            if (!pexelsPhotos.length && pexelsKey)
-                              void searchPexels(1);
-                          }}
+                          onClick={() => openPexelsPicker('cover', 'photo')}
                         >
                           <Search />
                           网络图库
@@ -4931,8 +5016,8 @@ function AdminWorkspace({
                           type="button"
                           variant="outline"
                           onClick={() => {
-                            setCoverPickerTab('pexels');
-                            void searchPexels(1, true);
+                            setPexelsTarget('cover');
+                            void searchPexels(1, true, undefined, 'photo');
                           }}
                         >
                           <Shuffle />
@@ -5227,6 +5312,20 @@ function AdminWorkspace({
                               >
                                 <Music2 />
                                 上传音频
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openPexelsPicker('body', 'photo')}
+                              >
+                                <Search />
+                                在线图片
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openPexelsPicker('body', 'video')}
+                              >
+                                <Video />
+                                在线视频
                               </button>
                               <button
                                 type="button"
@@ -5739,9 +5838,9 @@ function AdminWorkspace({
                     <ImagePlus />
                     <div>
                       <h2>网络图库</h2>
-                      <p>Pexels Key 仅保存在当前浏览器，不会提交到 GitHub。</p>
+                      <p>Pexels Key 跟随当前账号同步到电脑和手机，不会提交到 GitHub。</p>
                     </div>
-                    <ScopeBadge scope="device" />
+                    <ScopeBadge scope="personal" />
                   </div>
                   <Field label="Pexels API Key">
                     <div className="local-key-field">
@@ -5768,7 +5867,7 @@ function AdminWorkspace({
                       </Button>
                     </div>
                     <small className="token-hint">
-                      这是本机设置，导出设置和保存网站时都不会包含此密钥。
+                      密钥保存在受登录保护的账号偏好中；导出设置和网站仓库均不会包含它。
                     </small>
                   </Field>
                 </section>
@@ -5840,9 +5939,9 @@ function AdminWorkspace({
           >
             <header>
               <div>
-                <small>COVER LIBRARY</small>
-                <h2 id="pexels-title">选择文章封面</h2>
-                <p>复用已有图片，或从 Pexels 获取真实图片。</p>
+                <small>{pexelsTarget === 'cover' ? 'COVER LIBRARY' : 'ARTICLE MEDIA'}</small>
+                <h2 id="pexels-title">{pexelsTarget === 'cover' ? '选择文章封面' : '插入在线媒体'}</h2>
+                <p>{pexelsTarget === 'cover' ? '复用已有图片，或从 Pexels 获取真实图片。' : '从媒体库或 Pexels 插入正文图片与在线视频。'}</p>
               </div>
               <button onClick={() => setShowPexels(false)} aria-label="关闭">
                 <X />
@@ -5861,7 +5960,11 @@ function AdminWorkspace({
               </button>
               <button
                 className={coverPickerTab === 'pexels' ? 'active' : ''}
-                onClick={() => setCoverPickerTab('pexels')}
+                onClick={() => {
+                  setCoverPickerTab('pexels');
+                  if (pexelsKey && !(pexelsMediaKind === 'photo' ? pexelsPhotos.length : pexelsVideos.length))
+                    void searchPexels(1);
+                }}
               >
                 <Search />
                 Pexels 网络图库
@@ -5879,20 +5982,22 @@ function AdminWorkspace({
                           <b>{item.name}</b>
                           <button
                             onClick={() => {
-                              updateDraft({
-                                coverImage: item.url,
-                                coverCredit: '',
-                                coverCreditUrl: '',
-                                coverPexelsId: undefined,
-                                coverPosition: '50% 50%',
-                                coverBrightness: 100,
-                                coverOverlay: 12,
-                              });
+                              if (pexelsTarget === 'body')
+                                insertMediaAtSelection(`![${markdownLabel(item.name.replace(/\.[^.]+$/, '') || '文章图片')}](${item.url})`);
+                              else updateDraft({
+                                  coverImage: item.url,
+                                  coverCredit: '',
+                                  coverCreditUrl: '',
+                                  coverPexelsId: undefined,
+                                  coverPosition: '50% 50%',
+                                  coverBrightness: 100,
+                                  coverOverlay: 12,
+                                });
                               setShowPexels(false);
-                              setMessage('已从媒体库选择封面。');
+                              setMessage(pexelsTarget === 'body' ? '已从媒体库插入正文图片。' : '已从媒体库选择封面。');
                             }}
                           >
-                            使用此封面
+                            {pexelsTarget === 'body' ? '插入正文' : '使用此封面'}
                           </button>
                         </div>
                       </article>
@@ -5904,6 +6009,16 @@ function AdminWorkspace({
                   </div>
                 )}
               </div>
+            )}
+            {coverPickerTab === 'pexels' && (
+              <nav className="pexels-kind-tabs" aria-label="在线媒体类型">
+                <button className={pexelsMediaKind === 'photo' ? 'active' : ''} onClick={() => void searchPexels(1, false, undefined, 'photo')}>
+                  <ImagePlus />图片
+                </button>
+                <button className={pexelsMediaKind === 'video' ? 'active' : ''} disabled={pexelsTarget === 'cover'} title={pexelsTarget === 'cover' ? '封面仅支持图片' : undefined} onClick={() => void searchPexels(1, false, undefined, 'video')}>
+                  <Video />视频
+                </button>
+              </nav>
             )}
             <form
               onSubmit={(event) => {
@@ -5939,7 +6054,7 @@ function AdminWorkspace({
                     setPexelsCategory('custom');
                   }}
                   placeholder="搜索自然、城市、科技…"
-                  aria-label="搜索 Pexels 图片"
+                  aria-label={`搜索 Pexels ${pexelsMediaKind === 'video' ? '视频' : '图片'}`}
                 />
               </label>
               <button type="submit" disabled={pexelsLoading || !pexelsKey}>
@@ -5959,7 +6074,7 @@ function AdminWorkspace({
                 <KeyRound />
                 <div>
                   <b>需要 Pexels API Key</b>
-                  <small>密钥只保存在当前浏览器，不会进入网站仓库。</small>
+                  <small>密钥会加密传输到账号偏好，登录同一账号的手机可自动同步，不会进入网站仓库。</small>
                 </div>
                 <Input
                   type="password"
@@ -5972,9 +6087,9 @@ function AdminWorkspace({
             {pexelsLoading ? (
               <div className="pexels-loading">
                 <LoaderCircle className="spin" />
-                <p>正在获取真实图片…</p>
+                <p>正在获取真实{pexelsMediaKind === 'video' ? '视频' : '图片'}…</p>
               </div>
-            ) : pexelsPhotos.length ? (
+            ) : pexelsMediaKind === 'photo' && pexelsPhotos.length ? (
               <div className="pexels-grid">
                 {pexelsPhotos.map((photo) => (
                   <article key={photo.id}>
@@ -5995,9 +6110,21 @@ function AdminWorkspace({
                       <a href={photo.url} target="_blank" rel="noreferrer">
                         {photo.photographer} / Pexels
                       </a>
-                      <button onClick={() => void usePexelsPhoto(photo)}>
-                        使用此封面
+                      <button onClick={() => void insertPexelsPhoto(photo)}>
+                        {pexelsTarget === 'body' ? '插入正文' : '使用此封面'}
                       </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : pexelsMediaKind === 'video' && pexelsVideos.length ? (
+              <div className="pexels-grid pexels-video-grid">
+                {pexelsVideos.map((video) => (
+                  <article key={video.id}>
+                    <video src={video.video_files.find((file) => file.file_type === 'video/mp4')?.link} poster={video.image} muted playsInline preload="metadata" />
+                    <div>
+                      <a href={video.url} target="_blank" rel="noreferrer">{video.user?.name || 'Pexels 创作者'} / Pexels</a>
+                      <button onClick={() => insertPexelsVideo(video)}>插入视频</button>
                     </div>
                   </article>
                 ))}
@@ -6007,14 +6134,14 @@ function AdminWorkspace({
                 <ImagePlus />
                 <p>
                   {pexelsKey
-                    ? '搜索关键词，挑选一张真实封面'
-                    : '填写 API Key 后即可搜索图片'}
+                    ? `搜索关键词，挑选${pexelsMediaKind === 'video' ? '在线视频' : pexelsTarget === 'body' ? '正文图片' : '真实封面'}`
+                    : `填写 API Key 后即可搜索${pexelsMediaKind === 'video' ? '视频' : '图片'}`}
                 </p>
               </div>
             )}
             <footer>
               <a href="https://www.pexels.com" target="_blank" rel="noreferrer">
-                Photos provided by Pexels
+                Photos and videos provided by Pexels
               </a>
               {coverPickerTab === 'pexels' && pexelsPhotos.length > 1 && (
                 <span>
@@ -6682,6 +6809,17 @@ function articleSlugInput(value: string) {
 function mediaFileName(originalName: string, extension: string) {
   const base = slugify(originalName.replace(/\.[^.]+$/, ''));
   return `${base}-${Date.now()}.${extension.toLowerCase()}`;
+}
+
+function markdownLabel(value: string) {
+  return value
+    .replaceAll('[', ' ')
+    .replaceAll(']', ' ')
+    .replaceAll('(', ' ')
+    .replaceAll(')', ' ')
+    .replace(/[\n\r]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function normalizeMediaUrl(value: string) {

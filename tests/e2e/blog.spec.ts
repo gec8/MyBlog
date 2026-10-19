@@ -20,6 +20,27 @@ async function mockBackend(page: Page, role: 'owner' | 'author' = 'owner') {
   let deploymentChecks = 0;
   let readerAnnotations: unknown[] = [];
   let readerUpdatedAt: string | null = null;
+  let preferences: Record<string, unknown> = {};
+  await page.route('https://images.pexels.com/**', (route) => route.fulfill({
+    contentType: 'image/png',
+    body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2h8sAAAAASUVORK5CYII=', 'base64'),
+  }));
+  await page.route('https://api.pexels.com/**', async (route) => {
+    const url = route.request().url();
+    if (url.includes('/videos/')) return route.fulfill({ json: { videos: [{
+      id: 101, width: 1280, height: 720,
+      url: 'https://www.pexels.com/video/test-video-101/',
+      image: 'https://images.pexels.com/videos/101/free-video-101.jpg',
+      user: { name: 'Test Creator', url: 'https://www.pexels.com/@test-creator/' },
+      video_files: [{ id: 1, quality: 'hd', file_type: 'video/mp4', width: 1280, height: 720, link: 'https://videos.pexels.com/video-files/101/test-video.mp4' }],
+    }] } });
+    return route.fulfill({ json: { photos: [{
+      id: 202, width: 1280, height: 720, photographer: 'Photo Creator',
+      photographer_url: 'https://www.pexels.com/@photo-creator/',
+      url: 'https://www.pexels.com/photo/test-photo-202/', alt: '测试在线图片',
+      src: { medium: 'https://images.pexels.com/photos/202/medium.png', large: 'https://images.pexels.com/photos/202/large.png', large2x: 'https://images.pexels.com/photos/202/large2x.png' },
+    }] } });
+  });
   await page.route('https://api.github.com/repos/**/actions/runs**', async (route) => {
     deploymentChecks += 1;
     return route.fulfill({
@@ -48,7 +69,11 @@ async function mockBackend(page: Page, role: 'owner' | 'author' = 'owner') {
     }
     if (path === '/api/content/articles') return route.fulfill({ json: { posts: [post], post, sha: 'test-sha', status: 'published' } });
     if (path === '/api/drafts') return route.fulfill({ json: { drafts: [] } });
-    if (path === '/api/preferences') return route.fulfill({ json: { preferences: {} } });
+    if (path === '/api/preferences' && route.request().method() === 'GET') return route.fulfill({ json: { preferences } });
+    if (path === '/api/preferences' && route.request().method() === 'PUT') {
+      preferences = (route.request().postDataJSON() as { preferences?: Record<string, unknown> }).preferences ?? {};
+      return route.fulfill({ json: { ok: true } });
+    }
     if (path === '/api/content/reviews') return route.fulfill({ json: { reviews: [] } });
     if (path === '/api/snapshots') return route.fulfill({ json: { snapshots: [{ id: 'snap-1', kind: 'article', target_id: 'post-1', title: '文章备份', created_at: '2026-01-01T00:00:00Z', actor_name: '站长' }] } });
     if (path.startsWith('/api/snapshots/')) return route.fulfill({ json: { ok: true } });
@@ -331,6 +356,35 @@ test('管理员可进入写作、媒体上传、删除恢复与健康状态', as
   await expect(page.getByText(/备份已恢复/)).toBeVisible();
   await page.getByRole('button', { name: '概览' }).click();
   await expect(page.getByText('网站健康状态')).toBeVisible();
+});
+
+test('Pexels API Key 可同步到手机并在正文插入在线视频', async ({ page }) => {
+  await login(page, 'owner');
+  await openAdminPanel(page, '设置');
+  const keyInput = page.getByPlaceholder('粘贴 Pexels API Key');
+  await keyInput.fill('pexels-test-key');
+  await page.waitForTimeout(700);
+  await page.evaluate(() => localStorage.removeItem('nekopress-pexels-key'));
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await openAdminPanel(page, '设置');
+  await expect(page.getByPlaceholder('粘贴 Pexels API Key')).toHaveValue('pexels-test-key');
+
+  await page.locator('.admin-sidebar nav').getByRole('button', { name: '写作' }).click();
+  await expect(page.getByRole('button', { name: '在线图片' })).toBeVisible();
+  await page.getByRole('button', { name: '在线视频' }).click();
+  await expect(page.getByRole('heading', { name: '插入在线媒体' })).toBeVisible();
+  await expect(page.locator('.pexels-video-grid article')).toHaveCount(1);
+  await page.getByRole('button', { name: '插入视频' }).click();
+  await expect(page.locator('.content-editor')).toContainText('@[video:Test Creator](https://videos.pexels.com/video-files/101/test-video.mp4)');
+  await expect(page.locator('.content-editor')).toContainText('视频：Test Creator / Pexels');
+
+  await page.getByRole('button', { name: '在线图片' }).click();
+  await expect(page.locator('.pexels-grid article')).toHaveCount(1);
+  await page.getByRole('button', { name: '插入正文' }).click();
+  await expect(page.locator('.content-editor')).toContainText('![测试在线图片](./images/test.png)');
+  await expect(page.locator('.content-editor')).toContainText('图片：Photo Creator / Pexels');
 });
 
 test('新建文章支持模板、折叠设置、布局切换与未保存保护', async ({ page }) => {
