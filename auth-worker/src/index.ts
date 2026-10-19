@@ -108,6 +108,12 @@ export default {
         return getPreferences(env, auth.user, cors);
       if (url.pathname === '/api/preferences' && request.method === 'PUT')
         return savePreferences(request, env, auth.user, cors);
+      if (url.pathname === '/api/pexels/config' && request.method === 'GET')
+        return getPexelsConfig(env, cors);
+      if (url.pathname === '/api/pexels/config' && request.method === 'PUT') {
+        requireOwner(auth.user);
+        return savePexelsConfig(request, env, auth.user, cors);
+      }
       if (url.pathname === '/api/pexels/search' && request.method === 'GET')
         return searchPexels(url, env, auth.user, cors);
       if (url.pathname === '/api/annotations' && request.method === 'GET')
@@ -753,13 +759,53 @@ async function removeDraft(request: Request, env: Env, user: UserRow, draftId: s
 }
 async function getPreferences(env: Env, user: UserRow, cors: Record<string, string>) {
   const row = await env.DB.prepare('SELECT preferences_json FROM user_preferences WHERE user_id = ?').bind(user.id).first<{ preferences_json: string }>();
-  return json({ preferences: row ? JSON.parse(row.preferences_json) : {} }, 200, cors);
+  const preferences = row ? JSON.parse(row.preferences_json) as Record<string, unknown> : {};
+  delete preferences.pexelsKey;
+  delete preferences.pexelsKeyUpdatedAt;
+  return json({ preferences }, 200, cors);
 }
 async function savePreferences(request: Request, env: Env, user: UserRow, cors: Record<string, string>) {
-  const data = await body(request); const preferences = JSON.stringify(data.preferences ?? {});
+  const data = await body(request);
+  const incoming = data.preferences && typeof data.preferences === 'object'
+    ? data.preferences as Record<string, unknown>
+    : {};
+  const safePreferences = {
+    ...(typeof incoming.showOutline === 'boolean'
+      ? { showOutline: incoming.showOutline }
+      : {}),
+    ...(['desktop', 'tablet', 'mobile'].includes(String(incoming.previewSize))
+      ? { previewSize: String(incoming.previewSize) }
+      : {}),
+  };
+  const preferences = JSON.stringify(safePreferences);
   if (preferences.length > 20_000) throw new HttpError(413, '个人设置内容过大。');
   await env.DB.prepare('INSERT INTO user_preferences (user_id, preferences_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET preferences_json = excluded.preferences_json, updated_at = excluded.updated_at').bind(user.id, preferences, now()).run();
   return json({ ok: true }, 200, cors);
+}
+
+async function getPexelsConfig(env: Env, cors: Record<string, string>) {
+  const row = await env.DB.prepare(
+    "SELECT length(value) AS key_length, updated_at FROM site_secrets WHERE key = 'pexels_api_key'",
+  ).first<{ key_length: number; updated_at: string }>();
+  return json({ configured: Number(row?.key_length ?? 0) > 0, updatedAt: row?.updated_at ?? null }, 200, cors);
+}
+
+async function savePexelsConfig(
+  request: Request,
+  env: Env,
+  user: UserRow,
+  cors: Record<string, string>,
+) {
+  const data = await body(request);
+  const apiKey = String(data.apiKey ?? '').trim();
+  if (apiKey.length < 16 || apiKey.length > 300)
+    throw new HttpError(400, 'Pexels API Key 格式不正确。');
+  const timestamp = now();
+  await env.DB.prepare(
+    "INSERT INTO site_secrets (key, value, updated_at, updated_by) VALUES ('pexels_api_key', ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by",
+  ).bind(apiKey, timestamp, user.id).run();
+  await audit(env, user.id, 'pexels.configured', 'site', 'pexels', request);
+  return json({ configured: true, updatedAt: timestamp }, 200, cors);
 }
 
 async function searchPexels(
@@ -769,18 +815,10 @@ async function searchPexels(
   cors: Record<string, string>,
 ) {
   const row = await env.DB.prepare(
-    'SELECT preferences_json FROM user_preferences WHERE user_id = ?',
-  ).bind(user.id).first<{ preferences_json: string }>();
-  let preferences: Record<string, unknown> = {};
-  try {
-    preferences = row ? JSON.parse(row.preferences_json) : {};
-  } catch {
-    throw new HttpError(500, '账号偏好数据无法读取。');
-  }
-  const apiKey = typeof preferences.pexelsKey === 'string'
-    ? preferences.pexelsKey.trim()
-    : '';
-  if (!apiKey) throw new HttpError(400, '请先保存 Pexels API Key。');
+    "SELECT value FROM site_secrets WHERE key = 'pexels_api_key'",
+  ).first<{ value: string }>();
+  const apiKey = row?.value?.trim() || '';
+  if (!apiKey) throw new HttpError(400, '请由超级管理员先配置 Pexels API Key。');
 
   const kind = url.searchParams.get('kind') === 'video' ? 'video' : 'photo';
   const query = (url.searchParams.get('query') || '').trim().slice(0, 100);

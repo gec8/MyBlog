@@ -21,6 +21,7 @@ async function mockBackend(page: Page, role: 'owner' | 'author' = 'owner') {
   let readerAnnotations: unknown[] = [];
   let readerUpdatedAt: string | null = null;
   let preferences: Record<string, unknown> = {};
+  let pexelsConfigured = false;
   await page.route('https://images.pexels.com/**', (route) => route.fulfill({
     contentType: 'image/png',
     body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2h8sAAAAASUVORK5CYII=', 'base64'),
@@ -59,7 +60,16 @@ async function mockBackend(page: Page, role: 'owner' | 'author' = 'owner') {
       preferences = (route.request().postDataJSON() as { preferences?: Record<string, unknown> }).preferences ?? {};
       return route.fulfill({ json: { ok: true } });
     }
+    if (path === '/api/pexels/config' && route.request().method() === 'GET') {
+      return route.fulfill({ json: { configured: pexelsConfigured, updatedAt: null } });
+    }
+    if (path === '/api/pexels/config' && route.request().method() === 'PUT') {
+      const payload = route.request().postDataJSON() as { apiKey?: string };
+      pexelsConfigured = Boolean(payload.apiKey?.trim());
+      return route.fulfill({ json: { configured: pexelsConfigured, updatedAt: new Date().toISOString() } });
+    }
     if (path === '/api/pexels/search') {
+      if (!pexelsConfigured) return route.fulfill({ status: 400, json: { error: '请先配置 Pexels API Key。' } });
       if (url.searchParams.get('kind') === 'video') return route.fulfill({ json: { videos: [{
         id: 101, width: 1280, height: 720,
         url: 'https://www.pexels.com/video/test-video-101/',
@@ -358,37 +368,26 @@ test('管理员可进入写作、媒体上传、删除恢复与健康状态', as
   await expect(page.getByText('网站健康状态')).toBeVisible();
 });
 
-test('Pexels API Key 可同步到手机并在正文插入在线视频', async ({ page }) => {
+test('网站级 Pexels API Key 可供手机使用且不会回显原始密钥', async ({ page }) => {
   await login(page, 'owner');
-  await page.evaluate(() => {
-    localStorage.setItem('nekopress-pexels-key', 'legacy-local-key');
-    localStorage.removeItem('nekopress-pexels-key-updated-at');
-  });
-  const legacyKeySaved = page.waitForRequest((request) =>
-    request.url().endsWith('/api/preferences') &&
-    request.method() === 'PUT' &&
-    request.postData()?.includes('legacy-local-key') === true,
-  );
-  await page.reload();
-  await legacyKeySaved;
   await openAdminPanel(page, '设置');
   const keyInput = page.getByPlaceholder('粘贴 Pexels API Key');
-  await expect(keyInput).toHaveValue('legacy-local-key');
-  await expect(page.getByText(/已同步到当前账号/)).toBeVisible();
   const newKeySaved = page.waitForRequest((request) =>
-    request.url().endsWith('/api/preferences') &&
+    request.url().endsWith('/api/pexels/config') &&
     request.method() === 'PUT' &&
     request.postData()?.includes('pexels-test-key') === true,
   );
   await keyInput.fill('pexels-test-key');
+  await page.getByRole('button', { name: '测试并打开图库' }).click();
   await newKeySaved;
-  await expect(page.getByText(/已同步到当前账号/)).toBeVisible();
-  await page.evaluate(() => localStorage.removeItem('nekopress-pexels-key'));
+  await expect(page.locator('.pexels-grid article')).toHaveCount(1);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
   await openAdminPanel(page, '设置');
-  await expect(page.getByPlaceholder('粘贴 Pexels API Key')).toHaveValue('pexels-test-key');
+  await expect(page.getByPlaceholder('已配置；留空表示不修改')).toHaveValue('');
+  await expect(page.getByText(/网站级 Key 已配置/)).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('pexels-test-key');
 
   await page.locator('.admin-sidebar nav').getByRole('button', { name: '写作' }).click();
   await expect(page.getByRole('button', { name: '在线图片' })).toBeVisible();

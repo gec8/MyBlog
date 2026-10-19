@@ -17,6 +17,7 @@ const authSchema = readFileSync("auth-worker/migrations/0001_users.sql", "utf8")
 const maintenanceSchema = readFileSync("auth-worker/migrations/0003_drafts_backups_preferences_media.sql", "utf8");
 const monitoringSchema = readFileSync("auth-worker/migrations/0004_error_monitoring.sql", "utf8");
 const annotationsSchema = readFileSync("auth-worker/migrations/0005_reader_annotations.sql", "utf8");
+const siteSecretsSchema = readFileSync("auth-worker/migrations/0006_site_secrets.sql", "utf8");
 const frontSource = readFileSync("components/frontend/blog-front.tsx", "utf8");
 const adminPage = readFileSync("app/admin/page.tsx", "utf8");
 
@@ -64,11 +65,12 @@ test("后台编辑和发布入口存在", () => {
   assert.doesNotMatch(source, /fetch\(['"`]https:\/\/api\.pexels\.com/);
   assert.match(source, /@\[video:/);
   assert.match(source, /在线视频/);
-  assert.match(source, /nekopress-pexels-key/);
+  assert.doesNotMatch(source, /nekopress-pexels-key/);
   assert.match(
     source,
-    /preferences: \{ showOutline, previewSize, pexelsKey, pexelsKeyUpdatedAt \}/,
+    /preferences: \{ showOutline, previewSize \}/,
   );
+  assert.match(source, /\/api\/pexels\/config/);
   assert.match(source, /coverCredit/);
   assert.match(source, /coverPosition/);
   assert.match(source, /coverBrightness/);
@@ -244,6 +246,8 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(authWorker, /user_preferences/);
   assert.match(authWorker, /GET, POST, PUT, PATCH, DELETE, OPTIONS/);
   assert.match(authWorker, /\/api\/pexels\/search/);
+  assert.match(authWorker, /\/api\/pexels\/config/);
+  assert.match(authWorker, /site_secrets/);
   assert.match(authWorker, /api\.pexels\.com\/v1\/videos/);
   assert.match(authWorker, /media_assets/);
   assert.match(authWorker, /contentHash/);
@@ -254,6 +258,8 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(authSchema, /CREATE TABLE IF NOT EXISTS audit_logs/);
   assert.match(maintenanceSchema, /CREATE TABLE IF NOT EXISTS cloud_drafts/);
   assert.match(maintenanceSchema, /CREATE TABLE IF NOT EXISTS content_snapshots/);
+  assert.match(siteSecretsSchema, /CREATE TABLE IF NOT EXISTS site_secrets/);
+  assert.match(siteSecretsSchema, /json_extract\(preferences_json, '\$\.pexelsKey'\)/);
   assert.match(maintenanceSchema, /CREATE TABLE IF NOT EXISTS user_preferences/);
   assert.match(maintenanceSchema, /CREATE TABLE IF NOT EXISTS media_assets/);
   assert.match(monitoringSchema, /CREATE TABLE IF NOT EXISTS error_events/);

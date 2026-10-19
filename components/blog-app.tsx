@@ -1984,7 +1984,7 @@ function AdminWorkspace({
   const [managingMedia, setManagingMedia] = useState(false);
   const [replaceMediaTarget, setReplaceMediaTarget] = useState<RepoMedia | null>(null);
   const [pexelsKey, setPexelsKey] = useState('');
-  const [pexelsKeyUpdatedAt, setPexelsKeyUpdatedAt] = useState(0);
+  const [pexelsConfigured, setPexelsConfigured] = useState(false);
   const [showPexels, setShowPexels] = useState(false);
   const [pexelsQuery, setPexelsQuery] = useState('自然');
   const [pexelsCategory, setPexelsCategory] = useState('自然');
@@ -2067,13 +2067,6 @@ function AdminWorkspace({
       if (allVersions) deferUpdate(() => setVersions(JSON.parse(allVersions)));
       const savedTemplates = localStorage.getItem('nekopress-article-templates');
       if (savedTemplates) deferUpdate(() => setCustomTemplates(JSON.parse(savedTemplates)));
-      const savedPexelsKey = localStorage.getItem('nekopress-pexels-key');
-      if (savedPexelsKey) deferUpdate(() => setPexelsKey(savedPexelsKey));
-      const savedPexelsKeyUpdatedAt = Number(
-        localStorage.getItem('nekopress-pexels-key-updated-at') || 0,
-      );
-      if (savedPexelsKeyUpdatedAt)
-        deferUpdate(() => setPexelsKeyUpdatedAt(savedPexelsKeyUpdatedAt));
     } catch {
       /* ignore malformed local preference */
     }
@@ -2139,39 +2132,17 @@ function AdminWorkspace({
       .then(() => setServiceStatus('online'))
       .catch(() => setServiceStatus('offline'));
     void syncServerArticles(); void loadCloudDrafts();
-    void contentRequest<{ preferences: { showOutline?: boolean; previewSize?: 'desktop' | 'tablet' | 'mobile'; pexelsKey?: string; pexelsKeyUpdatedAt?: number } }>('/api/preferences')
+    void contentRequest<{ preferences: { showOutline?: boolean; previewSize?: 'desktop' | 'tablet' | 'mobile' } }>('/api/preferences')
       .then(({ preferences }) => {
         if (typeof preferences.showOutline === 'boolean') setShowOutline(preferences.showOutline);
         if (preferences.previewSize) setPreviewSize(preferences.previewSize);
-        const localKey = localStorage.getItem('nekopress-pexels-key')?.trim() || '';
-        const localUpdatedAt = Number(
-          localStorage.getItem('nekopress-pexels-key-updated-at') || 0,
-        );
-        const cloudHasKey = typeof preferences.pexelsKey === 'string';
-        const cloudKey = cloudHasKey ? preferences.pexelsKey! : '';
-        const cloudUpdatedAt = Number(preferences.pexelsKeyUpdatedAt || 0);
-        const migrateLocalKey =
-          Boolean(localKey) &&
-          (!cloudHasKey ||
-            (!cloudKey && cloudUpdatedAt === 0) ||
-            localUpdatedAt > cloudUpdatedAt);
-        if (migrateLocalKey) {
-          const migratedAt = localUpdatedAt || Date.now();
-          setPexelsKey(localKey);
-          setPexelsKeyUpdatedAt(migratedAt);
-          localStorage.setItem('nekopress-pexels-key-updated-at', String(migratedAt));
-        } else if (typeof preferences.pexelsKey === 'string') {
-          setPexelsKey(cloudKey);
-          setPexelsKeyUpdatedAt(cloudUpdatedAt);
-          if (cloudKey) localStorage.setItem('nekopress-pexels-key', cloudKey);
-          else localStorage.removeItem('nekopress-pexels-key');
-          if (cloudUpdatedAt)
-            localStorage.setItem('nekopress-pexels-key-updated-at', String(cloudUpdatedAt));
-        }
         setPreferenceSyncState('saved');
       })
       .catch(() => setPreferenceSyncState('error'))
       .finally(() => setPreferencesReady(true));
+    void contentRequest<{ configured: boolean }>('/api/pexels/config')
+      .then(({ configured }) => setPexelsConfigured(configured))
+      .catch(() => setPexelsConfigured(false));
   }, [authToken]);
   useEffect(() => {
     if (!preferencesReady) return;
@@ -2180,14 +2151,14 @@ function AdminWorkspace({
       void contentRequest('/api/preferences', {
         method: 'PUT',
         body: JSON.stringify({
-          preferences: { showOutline, previewSize, pexelsKey, pexelsKeyUpdatedAt },
+          preferences: { showOutline, previewSize },
         }),
       })
         .then(() => setPreferenceSyncState('saved'))
         .catch(() => setPreferenceSyncState('error'));
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [showOutline, previewSize, pexelsKey, pexelsKeyUpdatedAt, preferencesReady]);
+  }, [showOutline, previewSize, preferencesReady]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -3412,14 +3383,23 @@ function AdminWorkspace({
   }
 
   function savePexelsKey(value: string) {
-    const nextKey = value.trim();
-    const updatedAt = Date.now();
-    setPexelsKey(nextKey);
-    setPexelsKeyUpdatedAt(updatedAt);
-    localStorage.setItem('nekopress-pexels-key-updated-at', String(updatedAt));
-    if (nextKey)
-      localStorage.setItem('nekopress-pexels-key', nextKey);
-    else localStorage.removeItem('nekopress-pexels-key');
+    setPexelsKey(value.trim());
+    setPexelsError('');
+  }
+
+  async function persistPexelsConfig() {
+    const apiKey = pexelsKey.trim();
+    if (!apiKey) return pexelsConfigured;
+    if (currentUser.role !== 'owner') {
+      throw new Error('只有超级管理员可以配置 Pexels API Key。');
+    }
+    const result = await contentRequest<{ configured: boolean }>('/api/pexels/config', {
+      method: 'PUT',
+      body: JSON.stringify({ apiKey }),
+    });
+    setPexelsConfigured(result.configured);
+    setPexelsKey('');
+    return result.configured;
   }
 
   function openPexelsPicker(target: 'cover' | 'body', kind: 'photo' | 'video' = 'photo') {
@@ -3427,7 +3407,7 @@ function AdminWorkspace({
     setPexelsMediaKind(kind);
     setCoverPickerTab('pexels');
     setShowPexels(true);
-    if (pexelsKey && !(kind === 'photo' ? pexelsPhotos.length : pexelsVideos.length))
+    if (pexelsConfigured && !(kind === 'photo' ? pexelsPhotos.length : pexelsVideos.length))
       void searchPexels(1, false, undefined, kind);
   }
 
@@ -3437,22 +3417,17 @@ function AdminWorkspace({
     queryOverride?: string,
     kindOverride?: 'photo' | 'video',
   ) {
-    if (!pexelsKey.trim()) {
+    if (!pexelsConfigured && !pexelsKey.trim()) {
       setShowPexels(true);
       setPexelsPhotos([]);
-      setMessage('请先填写 Pexels API Key。');
+      setMessage('请由超级管理员先配置 Pexels API Key。');
       return;
     }
     setPexelsLoading(true);
     setPexelsError('');
     setShowPexels(true);
     try {
-      await contentRequest('/api/preferences', {
-        method: 'PUT',
-        body: JSON.stringify({
-          preferences: { showOutline, previewSize, pexelsKey, pexelsKeyUpdatedAt },
-        }),
-      });
+      await persistPexelsConfig();
       const kind = kindOverride ?? pexelsMediaKind;
       if (kindOverride) setPexelsMediaKind(kindOverride);
       const targetPage = random ? Math.floor(Math.random() * 30) + 1 : page;
@@ -5879,9 +5854,9 @@ function AdminWorkspace({
                     <ImagePlus />
                     <div>
                       <h2>网络图库</h2>
-                      <p>Pexels Key 跟随当前账号同步到电脑和手机，不会提交到 GitHub。</p>
+                      <p>由超级管理员配置一次，所有后台账号和设备共用；原始密钥只保存在服务器。</p>
                     </div>
-                    <ScopeBadge scope="personal" />
+                    <ScopeBadge scope="global" />
                   </div>
                   <Field label="Pexels API Key">
                     <div className="local-key-field">
@@ -5890,13 +5865,13 @@ function AdminWorkspace({
                         autoComplete="off"
                         value={pexelsKey}
                         onChange={(event) => savePexelsKey(event.target.value)}
-                        placeholder="粘贴 Pexels API Key"
+                        placeholder={pexelsConfigured ? '已配置；留空表示不修改' : '粘贴 Pexels API Key'}
                       />
                       <Button
                         className="publish-preview"
                         type="button"
                         variant="outline"
-                        disabled={!pexelsKey || pexelsLoading}
+                        disabled={(!pexelsConfigured && !pexelsKey) || pexelsLoading}
                         onClick={() => void searchPexels(1)}
                       >
                         {pexelsLoading ? (
@@ -5908,13 +5883,9 @@ function AdminWorkspace({
                       </Button>
                     </div>
                     <small className="token-hint">
-                      {preferenceSyncState === 'loading'
-                        ? '正在读取账号设置…'
-                        : preferenceSyncState === 'saving'
-                          ? '正在同步到账号…'
-                          : preferenceSyncState === 'error'
-                            ? '同步失败，请检查网络后重新输入或刷新重试。'
-                            : '已同步到当前账号，手机登录同一账号即可使用；不会进入网站仓库。'}
+                      {pexelsConfigured
+                        ? '网站级 Key 已配置，电脑和手机无需重新填写；出于安全考虑不会回显原始内容。'
+                        : '尚未配置。保存后所有后台账号和设备都可使用，不会进入网站仓库。'}
                     </small>
                   </Field>
                 </section>
@@ -6104,31 +6075,33 @@ function AdminWorkspace({
                   aria-label={`搜索 Pexels ${pexelsMediaKind === 'video' ? '视频' : '图片'}`}
                 />
               </label>
-              <button type="submit" disabled={pexelsLoading || !pexelsKey}>
+              <button type="submit" disabled={pexelsLoading || (!pexelsConfigured && !pexelsKey)}>
                 搜索
               </button>
               <button
                 type="button"
-                disabled={pexelsLoading || !pexelsKey}
+                disabled={pexelsLoading || (!pexelsConfigured && !pexelsKey)}
                 onClick={() => void searchPexels(1, true)}
               >
                 <Shuffle />
                 随机
               </button>
             </form>
-            {!pexelsKey && (
+            {!pexelsConfigured && (
               <div className="pexels-key">
                 <KeyRound />
                 <div>
                   <b>需要 Pexels API Key</b>
-                  <small>密钥会加密传输到账号偏好，登录同一账号的手机可自动同步，不会进入网站仓库。</small>
+                  <small>{currentUser.role === 'owner' ? '配置一次后，所有后台账号与手机都可以直接使用。' : '请联系超级管理员在设置页完成网站级配置。'}</small>
                 </div>
-                <Input
-                  type="password"
-                  value={pexelsKey}
-                  onChange={(event) => savePexelsKey(event.target.value)}
-                  placeholder="粘贴 API Key"
-                />
+                {currentUser.role === 'owner' && (
+                  <Input
+                    type="password"
+                    value={pexelsKey}
+                    onChange={(event) => savePexelsKey(event.target.value)}
+                    placeholder="粘贴 API Key"
+                  />
+                )}
               </div>
             )}
             {pexelsError && !pexelsLoading && (
