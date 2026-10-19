@@ -108,6 +108,10 @@ export default {
         return getPreferences(env, auth.user, cors);
       if (url.pathname === '/api/preferences' && request.method === 'PUT')
         return savePreferences(request, env, auth.user, cors);
+      if (url.pathname === '/api/annotations' && request.method === 'GET')
+        return getReaderAnnotations(url, env, auth.user, cors);
+      if (url.pathname === '/api/annotations' && request.method === 'PUT')
+        return saveReaderAnnotations(request, env, auth.user, cors);
       if (url.pathname === '/api/snapshots' && request.method === 'GET')
         return listSnapshots(env, auth.user, cors);
       const snapshotMatch = url.pathname.match(/^\/api\/snapshots\/([^/]+)\/restore$/);
@@ -754,6 +758,46 @@ async function savePreferences(request: Request, env: Env, user: UserRow, cors: 
   if (preferences.length > 20_000) throw new HttpError(413, '个人设置内容过大。');
   await env.DB.prepare('INSERT INTO user_preferences (user_id, preferences_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET preferences_json = excluded.preferences_json, updated_at = excluded.updated_at').bind(user.id, preferences, now()).run();
   return json({ ok: true }, 200, cors);
+}
+
+function validArticleSlug(value: string) {
+  return value.length > 0 && value.length <= 180 && /^[\p{L}\p{N}._~-]+$/u.test(value);
+}
+
+function validatedAnnotations(value: unknown) {
+  if (!Array.isArray(value) || value.length > 500) throw new HttpError(400, '批注内容无效。');
+  const annotations = value.map((raw) => {
+    const item = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const id = String(item.id ?? '');
+    const kind = String(item.kind ?? '');
+    const color = String(item.color ?? '');
+    const quote = String(item.quote ?? '');
+    const note = item.note == null ? undefined : String(item.note);
+    const start = Number(item.start);
+    const end = Number(item.end);
+    const createdAt = Number(item.createdAt);
+    if (!/^[a-zA-Z0-9_-]{4,100}$/.test(id) || !['highlight', 'underline', 'note'].includes(kind) || !['yellow', 'pink', 'blue', 'green'].includes(color) || !Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end - start > 20_000 || quote.length < 1 || quote.length > 20_000 || !Number.isFinite(createdAt) || (note && note.length > 5_000)) throw new HttpError(400, '批注内容无效。');
+    return { id, kind, color, quote, start, end, createdAt, ...(note ? { note } : {}) };
+  });
+  if (JSON.stringify(annotations).length > 250_000) throw new HttpError(413, '批注内容过大。');
+  return annotations;
+}
+
+async function getReaderAnnotations(url: URL, env: Env, user: UserRow, cors: Record<string, string>) {
+  const slug = String(url.searchParams.get('slug') ?? '').trim();
+  if (!validArticleSlug(slug)) throw new HttpError(400, '文章地址无效。');
+  const row = await env.DB.prepare('SELECT annotations_json, updated_at FROM reader_annotations WHERE user_id = ? AND article_slug = ?').bind(user.id, slug).first<{ annotations_json: string; updated_at: string }>();
+  return json({ annotations: row ? JSON.parse(row.annotations_json) : [], updatedAt: row?.updated_at ?? null }, 200, cors);
+}
+
+async function saveReaderAnnotations(request: Request, env: Env, user: UserRow, cors: Record<string, string>) {
+  const data = await body(request);
+  const slug = String(data.slug ?? '').trim();
+  if (!validArticleSlug(slug)) throw new HttpError(400, '文章地址无效。');
+  const annotations = validatedAnnotations(data.annotations);
+  const timestamp = now();
+  await env.DB.prepare('INSERT INTO reader_annotations (user_id, article_slug, annotations_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, article_slug) DO UPDATE SET annotations_json = excluded.annotations_json, updated_at = excluded.updated_at').bind(user.id, slug, JSON.stringify(annotations), timestamp, timestamp).run();
+  return json({ ok: true, updatedAt: timestamp }, 200, cors);
 }
 async function listSnapshots(env: Env, user: UserRow, cors: Record<string, string>) {
   requireEditor(user);

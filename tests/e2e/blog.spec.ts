@@ -18,6 +18,8 @@ const post = {
 
 async function mockBackend(page: Page, role: 'owner' | 'author' = 'owner') {
   let deploymentChecks = 0;
+  let readerAnnotations: unknown[] = [];
+  let readerUpdatedAt: string | null = null;
   await page.route('https://api.github.com/repos/**/actions/runs**', async (route) => {
     deploymentChecks += 1;
     return route.fulfill({
@@ -37,6 +39,13 @@ async function mockBackend(page: Page, role: 'owner' | 'author' = 'owner') {
     const path = url.pathname;
     if (path === '/api/auth/login') return route.fulfill({ json: { token: 'test-session', user } });
     if (path === '/api/auth/me') return route.fulfill({ json: { user } });
+    if (path === '/api/annotations' && route.request().method() === 'GET') return route.fulfill({ json: { annotations: readerAnnotations, updatedAt: readerUpdatedAt } });
+    if (path === '/api/annotations' && route.request().method() === 'PUT') {
+      const payload = route.request().postDataJSON() as { annotations?: unknown[] };
+      readerAnnotations = payload.annotations ?? [];
+      readerUpdatedAt = new Date().toISOString();
+      return route.fulfill({ json: { ok: true, updatedAt: readerUpdatedAt } });
+    }
     if (path === '/api/content/articles') return route.fulfill({ json: { posts: [post], post, sha: 'test-sha', status: 'published' } });
     if (path === '/api/drafts') return route.fulfill({ json: { drafts: [] } });
     if (path === '/api/preferences') return route.fulfill({ json: { preferences: {} } });
@@ -98,10 +107,16 @@ test('首页和文章在桌面及手机均可打开且无横向溢出', async ({
   await expect(page.locator('.article-body')).toBeVisible();
 });
 
-test('读者可以为已发布文章添加多色高亮、划线和本地批注', async ({ page }) => {
+test('读者批注可云端同步、跨设备恢复并直接取消高亮', async ({ page }) => {
+  await mockBackend(page);
   await page.goto('/post/welcome-to-nekopress');
   await expect(page.getByText('阅读批注', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '高亮', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '登录同步' }).click();
+  await page.getByRole('textbox', { name: '云同步账号' }).fill('owner');
+  await page.getByLabel('云同步密码').fill('abc123');
+  await page.getByRole('button', { name: '登录并同步' }).click();
+  await expect(page.getByRole('button', { name: '云端已同步' })).toBeVisible();
   const selectParagraph = async (index: number) => {
     const paragraph = page.locator('.article-body p').nth(index);
     await paragraph.scrollIntoViewIfNeeded();
@@ -133,8 +148,21 @@ test('读者可以为已发布文章添加多色高亮、划线和本地批注',
   await page.getByRole('button', { name: '保存批注' }).click();
   await expect(page.locator('.reader-mark-note.reader-color-pink')).toHaveCount(1);
   await expect(page.locator('.reader-annotation-list')).toContainText('这里值得以后再读一次');
+  await expect(page.getByRole('button', { name: '云端已同步' })).toBeVisible();
+  await page.evaluate(() => {
+    for (const key of Object.keys(localStorage)) if (key.startsWith('nekonote-reader-annotations:')) localStorage.removeItem(key);
+  });
   await page.reload();
   await expect(page.locator('[data-reader-annotation]')).toHaveCount(3);
+  await page.locator('.reader-mark-highlight.reader-color-blue').click();
+  await expect(page.locator('.reader-mark-highlight')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '云端已同步' })).toBeVisible();
+  await page.evaluate(() => {
+    for (const key of Object.keys(localStorage)) if (key.startsWith('nekonote-reader-annotations:')) localStorage.removeItem(key);
+  });
+  await page.reload();
+  await expect(page.locator('[data-reader-annotation]')).toHaveCount(2);
+  await expect(page.locator('.reader-mark-highlight')).toHaveCount(0);
 });
 
 test('手机首页首屏紧凑且手动主题会跨刷新保持', async ({ page }) => {

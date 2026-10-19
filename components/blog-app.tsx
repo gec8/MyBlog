@@ -20,6 +20,8 @@ import {
   Bold,
   CheckCircle2,
   Clock3,
+  Cloud,
+  CloudOff,
   Code2,
   Copy,
   Download,
@@ -37,6 +39,7 @@ import {
   ListFilter,
   LoaderCircle,
   LockKeyhole,
+  LogIn,
   LogOut,
   Maximize2,
   Minus,
@@ -459,6 +462,10 @@ function annotationStorageKey(slug: string) {
   return `nekonote-reader-annotations:${slug}`;
 }
 
+function annotationUpdatedStorageKey(slug: string) {
+  return `${annotationStorageKey(slug)}:updated-at`;
+}
+
 function isReaderAnnotation(value: unknown): value is ReaderAnnotation {
   if (!value || typeof value !== 'object') return false;
   const item = value as Partial<ReaderAnnotation>;
@@ -502,9 +509,14 @@ function renderReaderAnnotations(root: HTMLElement, annotations: ReaderAnnotatio
         const mark = document.createElement('span');
         mark.className = `reader-mark reader-mark-${annotation.kind} reader-color-${annotation.color}`;
         mark.dataset.readerAnnotation = annotation.id;
+        mark.tabIndex = 0;
+        mark.setAttribute('role', 'button');
+        mark.setAttribute('aria-label', `取消${annotation.kind === 'highlight' ? '高亮' : annotation.kind === 'underline' ? '划线' : '批注'}：${annotation.quote.trim().slice(0, 30)}`);
         if (annotation.note) {
           mark.dataset.note = annotation.note;
-          mark.title = annotation.note;
+          mark.title = `${annotation.note} · 点击可取消`;
+        } else {
+          mark.title = '点击可取消此标记';
         }
         selected.replaceWith(mark);
         mark.appendChild(selected);
@@ -531,12 +543,22 @@ function Article({
   const [annotations, setAnnotations] = useState<ReaderAnnotation[]>([]);
   const [annotationColor, setAnnotationColor] = useState<AnnotationColor>('yellow');
   const [annotationsReady, setAnnotationsReady] = useState(false);
+  const [cloudToken, setCloudToken] = useState('');
+  const [cloudUser, setCloudUser] = useState('');
+  const [cloudStatus, setCloudStatus] = useState<'local' | 'checking' | 'pending' | 'synced' | 'error'>('local');
+  const [cloudPanelOpen, setCloudPanelOpen] = useState(false);
+  const [cloudUsername, setCloudUsername] = useState('');
+  const [cloudPassword, setCloudPassword] = useState('');
+  const [cloudMessage, setCloudMessage] = useState('');
+  const [cloudBusy, setCloudBusy] = useState(false);
   const [selectedText, setSelectedText] = useState<TextSelection | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState('');
   const articleBodyRef = useRef<HTMLElement>(null);
   const selectedTextRef = useRef<TextSelection | null>(null);
   const annotationColorRef = useRef<AnnotationColor>('yellow');
+  const cloudTokenRef = useRef('');
+  const cloudSaveTimerRef = useRef<number | null>(null);
   const bodyImages = useMemo(
     () =>
       post.content
@@ -645,9 +667,73 @@ function Article({
     setNoteDraft('');
   }, [post.slug]);
   useEffect(() => {
+    const savedToken = sessionStorage.getItem('nekonote-reader-token') || sessionStorage.getItem('nekopress-auth-token') || '';
+    if (!savedToken) return;
+    cloudTokenRef.current = savedToken;
+    setCloudToken(savedToken);
+    setCloudStatus('checking');
+    void authClient.me(savedToken).then(({ user }) => {
+      setCloudUser(user.displayName || user.username);
+    }).catch(() => {
+      sessionStorage.removeItem('nekonote-reader-token');
+      cloudTokenRef.current = '';
+      setCloudToken('');
+      setCloudStatus('local');
+    });
+  }, []);
+  useEffect(() => {
+    if (!cloudToken) return;
+    let cancelled = false;
+    setCloudStatus('checking');
+    void apiRequest<{ annotations: ReaderAnnotation[]; updatedAt: string | null }>(`/api/annotations?slug=${encodeURIComponent(post.slug)}`, {}, cloudToken).then(async (remote) => {
+      if (cancelled) return;
+      let local: ReaderAnnotation[] = [];
+      try {
+        const raw = JSON.parse(localStorage.getItem(annotationStorageKey(post.slug)) || '[]');
+        local = Array.isArray(raw) ? raw.filter(isReaderAnnotation) : [];
+      } catch { /* malformed local annotations are replaced by cloud data */ }
+      const localUpdated = localStorage.getItem(annotationUpdatedStorageKey(post.slug));
+      const localIsNewer = Boolean(localUpdated && (!remote.updatedAt || localUpdated > remote.updatedAt));
+      if ((local.length > 0 && !remote.updatedAt) || localIsNewer) {
+        const saved = await apiRequest<{ updatedAt: string }>('/api/annotations', { method: 'PUT', body: JSON.stringify({ slug: post.slug, annotations: local }) }, cloudToken);
+        if (!cancelled) {
+          localStorage.setItem(annotationUpdatedStorageKey(post.slug), saved.updatedAt);
+          setCloudStatus('synced');
+        }
+        return;
+      }
+      const valid = Array.isArray(remote.annotations) ? remote.annotations.filter(isReaderAnnotation) : [];
+      localStorage.setItem(annotationStorageKey(post.slug), JSON.stringify(valid));
+      if (remote.updatedAt) localStorage.setItem(annotationUpdatedStorageKey(post.slug), remote.updatedAt);
+      setAnnotations(valid);
+      setCloudStatus('synced');
+    }).catch(() => {
+      if (!cancelled) setCloudStatus('error');
+    });
+    return () => { cancelled = true; };
+  }, [cloudToken, post.slug]);
+  useEffect(() => {
     const root = articleBodyRef.current;
     if (root) renderReaderAnnotations(root, annotations);
   }, [annotations, post.slug]);
+  useEffect(() => {
+    const root = articleBodyRef.current;
+    if (!root) return;
+    const cancelMark = (event: MouseEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent && !['Enter', ' ', 'Backspace', 'Delete'].includes(event.key)) return;
+      const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-reader-annotation]') : null;
+      if (!target || !root.contains(target)) return;
+      event.preventDefault();
+      const id = target.dataset.readerAnnotation;
+      if (id) removeAnnotation(id);
+    };
+    root.addEventListener('click', cancelMark);
+    root.addEventListener('keydown', cancelMark);
+    return () => {
+      root.removeEventListener('click', cancelMark);
+      root.removeEventListener('keydown', cancelMark);
+    };
+  }, [annotations, cloudToken, post.slug]);
   useEffect(() => {
     document.addEventListener('selectionchange', captureTextSelection);
     document.addEventListener('mouseup', captureTextSelection, true);
@@ -660,9 +746,34 @@ function Article({
       document.removeEventListener('keyup', captureTextSelection, true);
     };
   }, [post.slug]);
+  useEffect(() => {
+    const retry = () => {
+      if (cloudTokenRef.current && cloudStatus === 'error') saveAnnotations(annotations);
+    };
+    window.addEventListener('online', retry);
+    return () => window.removeEventListener('online', retry);
+  }, [annotations, cloudStatus, post.slug]);
+  useEffect(() => () => {
+    if (cloudSaveTimerRef.current) window.clearTimeout(cloudSaveTimerRef.current);
+  }, []);
   function saveAnnotations(next: ReaderAnnotation[]) {
+    const changedAt = new Date().toISOString();
     setAnnotations(next);
     localStorage.setItem(annotationStorageKey(post.slug), JSON.stringify(next));
+    localStorage.setItem(annotationUpdatedStorageKey(post.slug), changedAt);
+    const token = cloudTokenRef.current;
+    if (!token) {
+      setCloudStatus('local');
+      return;
+    }
+    setCloudStatus('pending');
+    if (cloudSaveTimerRef.current) window.clearTimeout(cloudSaveTimerRef.current);
+    cloudSaveTimerRef.current = window.setTimeout(() => {
+      void apiRequest<{ updatedAt: string }>('/api/annotations', { method: 'PUT', body: JSON.stringify({ slug: post.slug, annotations: next }) }, token).then((result) => {
+        localStorage.setItem(annotationUpdatedStorageKey(post.slug), result.updatedAt);
+        setCloudStatus('synced');
+      }).catch(() => setCloudStatus('error'));
+    }, 350);
   }
   function addAnnotation(kind: AnnotationKind, note = '') {
     const target = selectedTextRef.current || captureTextSelection();
@@ -680,6 +791,34 @@ function Article({
   }
   function locateAnnotation(id: string) {
     articleBodyRef.current?.querySelector<HTMLElement>(`[data-reader-annotation="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  async function loginAnnotationCloud(event: FormEvent) {
+    event.preventDefault();
+    setCloudBusy(true);
+    setCloudMessage('');
+    try {
+      const result = await authClient.login(cloudUsername, cloudPassword);
+      sessionStorage.setItem('nekonote-reader-token', result.token);
+      cloudTokenRef.current = result.token;
+      setCloudToken(result.token);
+      setCloudUser(result.user.displayName || result.user.username);
+      setCloudPassword('');
+      setCloudStatus('checking');
+    } catch (error) {
+      setCloudMessage(error instanceof Error ? error.message : '云同步登录失败。');
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+  function disconnectAnnotationCloud() {
+    const token = cloudTokenRef.current;
+    if (token) void authClient.logout(token).catch(() => { /* local annotations remain available */ });
+    sessionStorage.removeItem('nekonote-reader-token');
+    cloudTokenRef.current = '';
+    setCloudToken('');
+    setCloudUser('');
+    setCloudStatus('local');
+    setCloudPanelOpen(false);
   }
   async function copyLink() {
     await navigator.clipboard.writeText(window.location.href);
@@ -757,7 +896,7 @@ function Article({
           <section className={`reader-annotation-bar ${selectedText ? 'has-selection' : ''}`} aria-label="阅读批注工具">
             <header>
               <span><Highlighter />阅读批注</span>
-              <small>{selectedText ? `已选择：${selectedText.quote.trim().slice(0, 30)}${selectedText.quote.trim().length > 30 ? '…' : ''}` : '先在正文中选中文字'}</small>
+              <small>{selectedText ? `已选择：${selectedText.quote.trim().slice(0, 30)}${selectedText.quote.trim().length > 30 ? '…' : ''}` : cloudStatus === 'synced' ? `已同步到云端${cloudUser ? ` · ${cloudUser}` : ''}` : cloudStatus === 'pending' || cloudStatus === 'checking' ? '正在同步批注…' : cloudStatus === 'error' ? '云端暂不可用 · 已安全保存到本机' : '本机长期保存 · 登录后跨设备同步'}</small>
             </header>
             <div className="annotation-actions">
               <fieldset className="annotation-colors" aria-label="批注颜色">
@@ -766,12 +905,25 @@ function Article({
               <button type="button" disabled={!annotationsReady} onMouseDown={(event) => event.preventDefault()} onClick={() => addAnnotation('highlight')}><Highlighter />高亮</button>
               <button type="button" disabled={!annotationsReady} onMouseDown={(event) => event.preventDefault()} onClick={() => addAnnotation('underline')}><Underline />划线</button>
               <button type="button" disabled={!annotationsReady} onMouseDown={(event) => event.preventDefault()} onClick={() => { if (selectedTextRef.current || captureTextSelection()) setNoteOpen(true); }}><MessageSquareText />写批注</button>
+              <button type="button" className={`annotation-cloud ${cloudStatus}`} onClick={() => setCloudPanelOpen((value) => !value)}>{cloudToken ? cloudStatus === 'error' ? <CloudOff /> : <Cloud /> : <LogIn />}{cloudToken ? cloudStatus === 'synced' ? '云端已同步' : cloudStatus === 'error' ? '同步待重试' : '云端同步中' : '登录同步'}</button>
             </div>
             {noteOpen && selectedText && <form className="annotation-note-form" onSubmit={(event) => { event.preventDefault(); if (noteDraft.trim()) addAnnotation('note', noteDraft); }}>
               <input value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="写下对这段文字的想法" aria-label="批注内容" />
               <button type="submit" disabled={!noteDraft.trim()}>保存批注</button>
               <button type="button" onClick={() => { setNoteOpen(false); setNoteDraft(''); }}>取消</button>
             </form>}
+            {cloudPanelOpen && <div className="annotation-cloud-panel">
+              {cloudToken ? <>
+                <span><Cloud />云端账号：{cloudUser || '已登录'}。批注会在登录此账号的设备间同步。</span>
+                {cloudStatus === 'error' && <button type="button" onClick={() => saveAnnotations(annotations)}><RefreshCw />立即重试</button>}
+                <button type="button" onClick={disconnectAnnotationCloud}><LogOut />退出云同步</button>
+              </> : <form onSubmit={loginAnnotationCloud}>
+                <input value={cloudUsername} onChange={(event) => setCloudUsername(event.target.value)} autoComplete="username" aria-label="云同步账号" placeholder="账号" required />
+                <input type="password" value={cloudPassword} onChange={(event) => setCloudPassword(event.target.value)} autoComplete="current-password" aria-label="云同步密码" placeholder="密码" required minLength={6} />
+                <button type="submit" disabled={cloudBusy}>{cloudBusy ? <LoaderCircle className="spin" /> : <Cloud />}登录并同步</button>
+                {cloudMessage && <p role="alert">{cloudMessage}</p>}
+              </form>}
+            </div>}
           </section>
           <article ref={articleBodyRef} className={`article-body reading-size-${fontSize}`}>
             <div className="article-annotated-content" key={annotations.map((item) => item.id).join('|') || 'plain'}>

@@ -16,6 +16,7 @@ const monitoring = readFileSync("services/monitoring/client.ts", "utf8");
 const authSchema = readFileSync("auth-worker/migrations/0001_users.sql", "utf8");
 const maintenanceSchema = readFileSync("auth-worker/migrations/0003_drafts_backups_preferences_media.sql", "utf8");
 const monitoringSchema = readFileSync("auth-worker/migrations/0004_error_monitoring.sql", "utf8");
+const annotationsSchema = readFileSync("auth-worker/migrations/0005_reader_annotations.sql", "utf8");
 const frontSource = readFileSync("components/frontend/blog-front.tsx", "utf8");
 const adminPage = readFileSync("app/admin/page.tsx", "utf8");
 
@@ -236,6 +237,7 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(authWorker, /contentHash/);
   assert.match(authWorker, /githubHttpError/);
   assert.match(authWorker, /error_events/);
+  assert.match(authWorker, /\/api\/annotations/);
   assert.match(authSchema, /CREATE TABLE IF NOT EXISTS users/);
   assert.match(authSchema, /CREATE TABLE IF NOT EXISTS audit_logs/);
   assert.match(maintenanceSchema, /CREATE TABLE IF NOT EXISTS cloud_drafts/);
@@ -243,4 +245,5 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(maintenanceSchema, /CREATE TABLE IF NOT EXISTS user_preferences/);
   assert.match(maintenanceSchema, /CREATE TABLE IF NOT EXISTS media_assets/);
   assert.match(monitoringSchema, /CREATE TABLE IF NOT EXISTS error_events/);
+  assert.match(annotationsSchema, /CREATE TABLE IF NOT EXISTS reader_annotations/);
 });
