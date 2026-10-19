@@ -222,7 +222,7 @@ function corsHeaders(origin: string, allowed: string) {
     'Access-Control-Allow-Origin': valid ? origin : allowed,
     'Access-Control-Allow-Headers':
       'Authorization, Content-Type, X-Setup-Secret',
-    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };

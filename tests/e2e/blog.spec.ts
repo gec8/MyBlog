@@ -360,10 +360,29 @@ test('管理员可进入写作、媒体上传、删除恢复与健康状态', as
 
 test('Pexels API Key 可同步到手机并在正文插入在线视频', async ({ page }) => {
   await login(page, 'owner');
+  await page.evaluate(() => {
+    localStorage.setItem('nekopress-pexels-key', 'legacy-local-key');
+    localStorage.removeItem('nekopress-pexels-key-updated-at');
+  });
+  const legacyKeySaved = page.waitForRequest((request) =>
+    request.url().endsWith('/api/preferences') &&
+    request.method() === 'PUT' &&
+    request.postData()?.includes('legacy-local-key') === true,
+  );
+  await page.reload();
+  await legacyKeySaved;
   await openAdminPanel(page, '设置');
   const keyInput = page.getByPlaceholder('粘贴 Pexels API Key');
+  await expect(keyInput).toHaveValue('legacy-local-key');
+  await expect(page.getByText(/已同步到当前账号/)).toBeVisible();
+  const newKeySaved = page.waitForRequest((request) =>
+    request.url().endsWith('/api/preferences') &&
+    request.method() === 'PUT' &&
+    request.postData()?.includes('pexels-test-key') === true,
+  );
   await keyInput.fill('pexels-test-key');
-  await page.waitForTimeout(700);
+  await newKeySaved;
+  await expect(page.getByText(/已同步到当前账号/)).toBeVisible();
   await page.evaluate(() => localStorage.removeItem('nekopress-pexels-key'));
 
   await page.setViewportSize({ width: 390, height: 844 });

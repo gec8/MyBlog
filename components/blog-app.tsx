@@ -1915,6 +1915,9 @@ function AdminWorkspace({
   const [reviews, setReviews] = useState<ArticleReview[]>([]);
   const [snapshots, setSnapshots] = useState<ContentSnapshot[]>([]);
   const [preferencesReady, setPreferencesReady] = useState(false);
+  const [preferenceSyncState, setPreferenceSyncState] = useState<
+    'loading' | 'saving' | 'saved' | 'error'
+  >('loading');
   const [mobilePreview, setMobilePreview] = useState(false);
   const [editorView, setEditorView] = useState<'edit' | 'split' | 'preview'>('split');
   const [previewSize, setPreviewSize] = useState<
@@ -1981,6 +1984,7 @@ function AdminWorkspace({
   const [managingMedia, setManagingMedia] = useState(false);
   const [replaceMediaTarget, setReplaceMediaTarget] = useState<RepoMedia | null>(null);
   const [pexelsKey, setPexelsKey] = useState('');
+  const [pexelsKeyUpdatedAt, setPexelsKeyUpdatedAt] = useState(0);
   const [showPexels, setShowPexels] = useState(false);
   const [pexelsQuery, setPexelsQuery] = useState('自然');
   const [pexelsCategory, setPexelsCategory] = useState('自然');
@@ -2064,6 +2068,11 @@ function AdminWorkspace({
       if (savedTemplates) deferUpdate(() => setCustomTemplates(JSON.parse(savedTemplates)));
       const savedPexelsKey = localStorage.getItem('nekopress-pexels-key');
       if (savedPexelsKey) deferUpdate(() => setPexelsKey(savedPexelsKey));
+      const savedPexelsKeyUpdatedAt = Number(
+        localStorage.getItem('nekopress-pexels-key-updated-at') || 0,
+      );
+      if (savedPexelsKeyUpdatedAt)
+        deferUpdate(() => setPexelsKeyUpdatedAt(savedPexelsKeyUpdatedAt));
     } catch {
       /* ignore malformed local preference */
     }
@@ -2123,28 +2132,61 @@ function AdminWorkspace({
     catch (error) { setState('error'); setMessage(error instanceof Error ? error.message : '恢复失败。'); }
   }
   useEffect(() => {
+    setPreferencesReady(false);
+    setPreferenceSyncState('loading');
     void apiRequest<{ ok: boolean }>('/api/health')
       .then(() => setServiceStatus('online'))
       .catch(() => setServiceStatus('offline'));
     void syncServerArticles(); void loadCloudDrafts();
-    void contentRequest<{ preferences: { showOutline?: boolean; previewSize?: 'desktop' | 'tablet' | 'mobile'; pexelsKey?: string } }>('/api/preferences')
+    void contentRequest<{ preferences: { showOutline?: boolean; previewSize?: 'desktop' | 'tablet' | 'mobile'; pexelsKey?: string; pexelsKeyUpdatedAt?: number } }>('/api/preferences')
       .then(({ preferences }) => {
         if (typeof preferences.showOutline === 'boolean') setShowOutline(preferences.showOutline);
         if (preferences.previewSize) setPreviewSize(preferences.previewSize);
-        if (typeof preferences.pexelsKey === 'string') {
-          setPexelsKey(preferences.pexelsKey);
-          if (preferences.pexelsKey) localStorage.setItem('nekopress-pexels-key', preferences.pexelsKey);
+        const localKey = localStorage.getItem('nekopress-pexels-key')?.trim() || '';
+        const localUpdatedAt = Number(
+          localStorage.getItem('nekopress-pexels-key-updated-at') || 0,
+        );
+        const cloudHasKey = typeof preferences.pexelsKey === 'string';
+        const cloudKey = cloudHasKey ? preferences.pexelsKey! : '';
+        const cloudUpdatedAt = Number(preferences.pexelsKeyUpdatedAt || 0);
+        const migrateLocalKey =
+          Boolean(localKey) &&
+          (!cloudHasKey ||
+            (!cloudKey && cloudUpdatedAt === 0) ||
+            localUpdatedAt > cloudUpdatedAt);
+        if (migrateLocalKey) {
+          const migratedAt = localUpdatedAt || Date.now();
+          setPexelsKey(localKey);
+          setPexelsKeyUpdatedAt(migratedAt);
+          localStorage.setItem('nekopress-pexels-key-updated-at', String(migratedAt));
+        } else if (typeof preferences.pexelsKey === 'string') {
+          setPexelsKey(cloudKey);
+          setPexelsKeyUpdatedAt(cloudUpdatedAt);
+          if (cloudKey) localStorage.setItem('nekopress-pexels-key', cloudKey);
           else localStorage.removeItem('nekopress-pexels-key');
+          if (cloudUpdatedAt)
+            localStorage.setItem('nekopress-pexels-key-updated-at', String(cloudUpdatedAt));
         }
+        setPreferenceSyncState('saved');
       })
-      .catch(() => { /* use local defaults while offline */ })
+      .catch(() => setPreferenceSyncState('error'))
       .finally(() => setPreferencesReady(true));
   }, [authToken]);
   useEffect(() => {
     if (!preferencesReady) return;
-    const timer = window.setTimeout(() => void contentRequest('/api/preferences', { method: 'PUT', body: JSON.stringify({ preferences: { showOutline, previewSize, pexelsKey } }) }).catch(() => { /* retry after next preference change */ }), 500);
+    setPreferenceSyncState('saving');
+    const timer = window.setTimeout(() => {
+      void contentRequest('/api/preferences', {
+        method: 'PUT',
+        body: JSON.stringify({
+          preferences: { showOutline, previewSize, pexelsKey, pexelsKeyUpdatedAt },
+        }),
+      })
+        .then(() => setPreferenceSyncState('saved'))
+        .catch(() => setPreferenceSyncState('error'));
+    }, 500);
     return () => window.clearTimeout(timer);
-  }, [showOutline, previewSize, pexelsKey, preferencesReady]);
+  }, [showOutline, previewSize, pexelsKey, pexelsKeyUpdatedAt, preferencesReady]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -3369,9 +3411,13 @@ function AdminWorkspace({
   }
 
   function savePexelsKey(value: string) {
-    setPexelsKey(value.trim());
-    if (value.trim())
-      localStorage.setItem('nekopress-pexels-key', value.trim());
+    const nextKey = value.trim();
+    const updatedAt = Date.now();
+    setPexelsKey(nextKey);
+    setPexelsKeyUpdatedAt(updatedAt);
+    localStorage.setItem('nekopress-pexels-key-updated-at', String(updatedAt));
+    if (nextKey)
+      localStorage.setItem('nekopress-pexels-key', nextKey);
     else localStorage.removeItem('nekopress-pexels-key');
   }
 
@@ -5867,7 +5913,13 @@ function AdminWorkspace({
                       </Button>
                     </div>
                     <small className="token-hint">
-                      密钥保存在受登录保护的账号偏好中；导出设置和网站仓库均不会包含它。
+                      {preferenceSyncState === 'loading'
+                        ? '正在读取账号设置…'
+                        : preferenceSyncState === 'saving'
+                          ? '正在同步到账号…'
+                          : preferenceSyncState === 'error'
+                            ? '同步失败，请检查网络后重新输入或刷新重试。'
+                            : '已同步到当前账号，手机登录同一账号即可使用；不会进入网站仓库。'}
                     </small>
                   </Field>
                 </section>
