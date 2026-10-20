@@ -41,6 +41,8 @@ export default {
       const url = new URL(request.url);
       if (url.pathname === '/api/health')
         return json({ ok: true, service: 'NekoPress Auth' }, 200, cors);
+      if (url.pathname === '/api/health/pexels' && request.method === 'GET')
+        return checkPexelsHealth(env, cors);
       if (url.pathname === '/api/errors' && request.method === 'POST')
         return collectClientError(request, env, origin, cors);
       if (url.pathname === '/api/setup/status' && request.method === 'GET') {
@@ -788,6 +790,40 @@ async function getPexelsConfig(env: Env, cors: Record<string, string>) {
     "SELECT length(value) AS key_length, updated_at FROM site_secrets WHERE key = 'pexels_api_key'",
   ).first<{ key_length: number; updated_at: string }>();
   return json({ configured: Number(row?.key_length ?? 0) > 0, updatedAt: row?.updated_at ?? null }, 200, cors);
+}
+
+async function checkPexelsHealth(env: Env, cors: Record<string, string>) {
+  const row = await env.DB.prepare(
+    "SELECT value FROM site_secrets WHERE key = 'pexels_api_key'",
+  ).first<{ value: string }>();
+  const apiKey = row?.value?.trim() || '';
+  if (!apiKey)
+    return json({ ok: false, configured: false, reason: 'missing_key' }, 200, cors);
+  try {
+    const response = await fetch('https://api.pexels.com/v1/curated?per_page=1&page=1', {
+      headers: { Authorization: apiKey, Accept: 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+    });
+    return json({
+      ok: response.ok,
+      configured: true,
+      upstreamStatus: response.status,
+      reason: response.ok
+        ? 'ready'
+        : response.status === 401
+          ? 'invalid_key'
+          : response.status === 429
+            ? 'rate_limited'
+            : 'upstream_error',
+    }, 200, cors);
+  } catch (error) {
+    return json({
+      ok: false,
+      configured: true,
+      reason: 'unreachable',
+      detail: error instanceof Error ? error.name : 'FetchError',
+    }, 200, cors);
+  }
 }
 
 async function savePexelsConfig(

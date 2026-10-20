@@ -9,18 +9,28 @@ export class ApiError extends Error {
 }
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}, token = '') {
-  let response: Response;
-  try {
-    response = await fetch(`${authApi}${path}`, {
-      ...options,
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-      cache: 'no-store',
-    });
-  } catch {
+  const method = (options.method ?? 'GET').toUpperCase();
+  const attempts = method === 'GET' ? 3 : 1;
+  let response: Response | undefined;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      response = await fetch(`${authApi}${path}`, {
+        ...options,
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(options.body != null ? { 'Content-Type': 'application/json' } : {}),
+          ...options.headers,
+        },
+        cache: 'no-store',
+      });
+      if (![502, 503, 504].includes(response.status) || attempt === attempts - 1) break;
+    } catch {
+      response = undefined;
+      if (attempt === attempts - 1) break;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 350 * (attempt + 1)));
+  }
+  if (!response) {
     reportClientError({ category: 'network', message: `请求失败：${path}` });
     throw new ApiError('网络连接失败。草稿仍保存在本机，请检查网络后重试。');
   }

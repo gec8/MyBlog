@@ -82,7 +82,7 @@ import { BrandMark, BrandWordmark } from '@/components/brand-mark';
 import { articleHref, assetHref, homeHref } from '@/lib/site-paths';
 import { authClient } from '@/services/auth/client';
 import { createContentClient } from '@/services/content/client';
-import { apiRequest } from '@/services/api-client';
+import { ApiError, apiRequest } from '@/services/api-client';
 import { installGlobalErrorMonitoring } from '@/services/monitoring/client';
 import type {
   AdminUser,
@@ -3468,9 +3468,11 @@ function AdminWorkspace({
       if (!photos.length)
         setMessage('没有找到合适的横向图片，请换一个关键词。');
     } catch (error) {
-      const errorMessage = error instanceof Error
-        ? error.message
-        : '网络媒体加载失败。';
+      const errorMessage = error instanceof ApiError && error.status === 0
+        ? '无法连接图片服务。当前网络可能限制 workers.dev，请切换网络或 VPN 后重试。'
+        : error instanceof Error
+          ? error.message
+          : '网络媒体加载失败。';
       setPexelsError(errorMessage);
       setMessage(errorMessage);
     } finally {
