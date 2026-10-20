@@ -249,6 +249,7 @@ test("后台账号、权限与安全会话完整", () => {
   assert.match(authWorker, /\/api\/pexels\/config/);
   assert.match(authWorker, /\/api\/health\/pexels/);
   assert.match(authWorker, /site_secrets/);
+  assert.match(authWorker, /Pexels API Key 无效或已失效/);
   assert.match(authWorker, /api\.pexels\.com\/v1\/videos/);
   assert.match(authWorker, /media_assets/);
   assert.match(authWorker, /contentHash/);

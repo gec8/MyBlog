@@ -836,6 +836,21 @@ async function savePexelsConfig(
   const apiKey = String(data.apiKey ?? '').trim();
   if (apiKey.length < 16 || apiKey.length > 300)
     throw new HttpError(400, 'Pexels API Key 格式不正确。');
+  let validation: Response;
+  try {
+    validation = await fetch('https://api.pexels.com/v1/curated?per_page=1&page=1', {
+      headers: { Authorization: apiKey, Accept: 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new HttpError(502, '暂时无法连接 Pexels，旧 Key 未被修改，请稍后重试。');
+  }
+  if (validation.status === 401)
+    throw new HttpError(422, 'Pexels API Key 无效或已失效，请从 Pexels API 页面复制完整 Key。');
+  if (validation.status === 429)
+    throw new HttpError(429, 'Pexels 请求次数已达到限制，旧 Key 未被修改。');
+  if (!validation.ok)
+    throw new HttpError(502, `Pexels 暂时无法验证 Key（${validation.status}），旧 Key 未被修改。`);
   const timestamp = now();
   await env.DB.prepare(
     "INSERT INTO site_secrets (key, value, updated_at, updated_by) VALUES ('pexels_api_key', ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by",

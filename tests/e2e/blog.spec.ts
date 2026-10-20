@@ -46,6 +46,11 @@ async function mockBackend(page: Page, role: 'owner' | 'author' = 'owner') {
     const path = url.pathname;
     if (path === '/api/auth/login') return route.fulfill({ json: { token: 'test-session', user } });
     if (path === '/api/auth/me') return route.fulfill({ json: { user } });
+    if (path === '/api/health/pexels') return route.fulfill({ json: {
+      ok: pexelsConfigured,
+      configured: pexelsConfigured,
+      reason: pexelsConfigured ? 'ready' : 'missing_key',
+    } });
     if (path === '/api/annotations' && route.request().method() === 'GET') return route.fulfill({ json: { annotations: readerAnnotations, updatedAt: readerUpdatedAt } });
     if (path === '/api/annotations' && route.request().method() === 'PUT') {
       const payload = route.request().postDataJSON() as { annotations?: unknown[] };
@@ -386,7 +391,7 @@ test('网站级 Pexels API Key 可供手机使用且不会回显原始密钥', a
   await page.reload();
   await openAdminPanel(page, '设置');
   await expect(page.getByPlaceholder('已配置；留空表示不修改')).toHaveValue('');
-  await expect(page.getByText(/网站级 Key 已配置/)).toBeVisible();
+  await expect(page.getByText(/网站级 Key 已验证/)).toBeVisible();
   await expect(page.locator('body')).not.toContainText('pexels-test-key');
 
   await page.locator('.admin-sidebar nav').getByRole('button', { name: '写作' }).click();

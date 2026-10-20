@@ -1985,6 +1985,9 @@ function AdminWorkspace({
   const [replaceMediaTarget, setReplaceMediaTarget] = useState<RepoMedia | null>(null);
   const [pexelsKey, setPexelsKey] = useState('');
   const [pexelsConfigured, setPexelsConfigured] = useState(false);
+  const [pexelsConnectionState, setPexelsConnectionState] = useState<
+    'checking' | 'ready' | 'invalid' | 'limited' | 'offline' | 'missing'
+  >('checking');
   const [showPexels, setShowPexels] = useState(false);
   const [pexelsQuery, setPexelsQuery] = useState('自然');
   const [pexelsCategory, setPexelsCategory] = useState('自然');
@@ -2143,6 +2146,20 @@ function AdminWorkspace({
     void contentRequest<{ configured: boolean }>('/api/pexels/config')
       .then(({ configured }) => setPexelsConfigured(configured))
       .catch(() => setPexelsConfigured(false));
+    void apiRequest<{ ok: boolean; configured: boolean; reason: string }>('/api/health/pexels')
+      .then(({ ok, configured, reason }) => {
+        setPexelsConfigured(configured);
+        setPexelsConnectionState(ok
+          ? 'ready'
+          : reason === 'invalid_key'
+            ? 'invalid'
+            : reason === 'rate_limited'
+              ? 'limited'
+              : configured
+                ? 'offline'
+                : 'missing');
+      })
+      .catch(() => setPexelsConnectionState('offline'));
   }, [authToken]);
   useEffect(() => {
     if (!preferencesReady) return;
@@ -3398,6 +3415,7 @@ function AdminWorkspace({
       body: JSON.stringify({ apiKey }),
     });
     setPexelsConfigured(result.configured);
+    setPexelsConnectionState('ready');
     setPexelsKey('');
     return result.configured;
   }
@@ -3407,7 +3425,7 @@ function AdminWorkspace({
     setPexelsMediaKind(kind);
     setCoverPickerTab('pexels');
     setShowPexels(true);
-    if (pexelsConfigured && !(kind === 'photo' ? pexelsPhotos.length : pexelsVideos.length))
+    if (pexelsConfigured && pexelsConnectionState !== 'invalid' && !(kind === 'photo' ? pexelsPhotos.length : pexelsVideos.length))
       void searchPexels(1, false, undefined, kind);
   }
 
@@ -3417,7 +3435,7 @@ function AdminWorkspace({
     queryOverride?: string,
     kindOverride?: 'photo' | 'video',
   ) {
-    if (!pexelsConfigured && !pexelsKey.trim()) {
+    if ((!pexelsConfigured || pexelsConnectionState === 'invalid') && !pexelsKey.trim()) {
       setShowPexels(true);
       setPexelsPhotos([]);
       setMessage('请由超级管理员先配置 Pexels API Key。');
@@ -5873,7 +5891,7 @@ function AdminWorkspace({
                         className="publish-preview"
                         type="button"
                         variant="outline"
-                        disabled={(!pexelsConfigured && !pexelsKey) || pexelsLoading}
+                        disabled={((!pexelsConfigured || pexelsConnectionState === 'invalid') && !pexelsKey) || pexelsLoading}
                         onClick={() => void searchPexels(1)}
                       >
                         {pexelsLoading ? (
@@ -5885,9 +5903,17 @@ function AdminWorkspace({
                       </Button>
                     </div>
                     <small className="token-hint">
-                      {pexelsConfigured
-                        ? '网站级 Key 已配置，电脑和手机无需重新填写；出于安全考虑不会回显原始内容。'
-                        : '尚未配置。保存后所有后台账号和设备都可使用，不会进入网站仓库。'}
+                      {pexelsConnectionState === 'checking'
+                        ? '正在验证网站级 Key…'
+                        : pexelsConnectionState === 'invalid'
+                          ? '当前保存的 Key 已被 Pexels 拒绝，请粘贴完整、有效的 Key 进行替换。'
+                          : pexelsConnectionState === 'limited'
+                            ? 'Key 有效，但当前已达到 Pexels 请求限制，请稍后再试。'
+                            : pexelsConnectionState === 'offline'
+                              ? 'Key 已保存，但暂时无法连接 Pexels；请稍后重试或切换网络。'
+                              : pexelsConfigured
+                                ? '网站级 Key 已验证，电脑和手机无需重新填写；出于安全考虑不会回显原始内容。'
+                                : '尚未配置。保存后所有后台账号和设备都可使用，不会进入网站仓库。'}
                     </small>
                   </Field>
                 </section>
@@ -6077,24 +6103,24 @@ function AdminWorkspace({
                   aria-label={`搜索 Pexels ${pexelsMediaKind === 'video' ? '视频' : '图片'}`}
                 />
               </label>
-              <button type="submit" disabled={pexelsLoading || (!pexelsConfigured && !pexelsKey)}>
+              <button type="submit" disabled={pexelsLoading || ((!pexelsConfigured || pexelsConnectionState === 'invalid') && !pexelsKey)}>
                 搜索
               </button>
               <button
                 type="button"
-                disabled={pexelsLoading || (!pexelsConfigured && !pexelsKey)}
+                disabled={pexelsLoading || ((!pexelsConfigured || pexelsConnectionState === 'invalid') && !pexelsKey)}
                 onClick={() => void searchPexels(1, true)}
               >
                 <Shuffle />
                 随机
               </button>
             </form>
-            {!pexelsConfigured && (
+            {(!pexelsConfigured || pexelsConnectionState === 'invalid') && (
               <div className="pexels-key">
                 <KeyRound />
                 <div>
-                  <b>需要 Pexels API Key</b>
-                  <small>{currentUser.role === 'owner' ? '配置一次后，所有后台账号与手机都可以直接使用。' : '请联系超级管理员在设置页完成网站级配置。'}</small>
+                  <b>{pexelsConnectionState === 'invalid' ? 'Pexels API Key 已失效' : '需要 Pexels API Key'}</b>
+                  <small>{currentUser.role === 'owner' ? '请粘贴完整有效的 Key；验证成功后所有后台账号与手机都可以直接使用。' : '请联系超级管理员在设置页更新网站级 Key。'}</small>
                 </div>
                 {currentUser.role === 'owner' && (
                   <Input
